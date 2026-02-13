@@ -1,6 +1,11 @@
 # GraphGuard - AI-Powered Dynamic Authentication System
 ## Week 4 Capstone Integration Submission
 
+
+
+- **Deployed App:** https://graphguard1.streamlit.app/
+
+
 ### Project Overview
 GraphGuard is an intelligent authentication and fraud detection system that uses AI to generate personalized security challenges based on real transaction history. The system provides:
 
@@ -9,7 +14,7 @@ GraphGuard is an intelligent authentication and fraud detection system that uses
 - **Comprehensive Monitoring**: Automatic logging of all interactions with performance metrics
 - **Production-Ready Architecture**: Scalable design with fallback mechanisms and monitoring
 
-- **Deployed App:** https://graphguard1.streamlit.app/
+
 
 ### Files Included
 
