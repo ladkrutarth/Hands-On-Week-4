@@ -1,0 +1,26 @@
+# GraphGuard — Ingestion Configuration
+# Update Snowflake credentials before running in live mode.
+
+source:
+  csv_path: "Week-4_Hand-on-Session/transactions_export_20260213_000349.csv"
+  format: csv
+  delimiter: ","
+  encoding: utf-8
+
+snowflake:
+  account: "HRRTATK-QZ67912"
+  user: "KRUTARTHLAD26"
+  password: "LvHhCv68ZRRb9N8"
+  warehouse: "GRAPH_GUARD_DATABASE"
+  database: "GRAPHGUARD_DB"
+  schema: "PUBLIC"
+  role: "SYSADMIN"
+
+target:
+  raw_table: "RAW_TRANSACTIONS"
+  features_table: "TRANSACTION_FEATURES"
+  scores_table: "FRAUD_SCORES"
+
+batch:
+  chunk_size: 5000
+  max_retries: 3
