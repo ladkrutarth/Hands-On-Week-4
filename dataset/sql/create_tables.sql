@@ -11,15 +11,18 @@ CREATE SCHEMA IF NOT EXISTS PUBLIC;
 USE SCHEMA PUBLIC;
 
 -- 2. Raw Transactions Table (Data Source Layer)
+-- Source: Kaggle kartik2112/fraud-detection (fraudTrain.csv)
 -- -------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS RAW_TRANSACTIONS (
     TRANSACTION_ID    VARCHAR(50)    PRIMARY KEY,
     USER_ID           VARCHAR(20)    NOT NULL,
     MERCHANT_NAME     VARCHAR(100),
+    CARDHOLDER_NAME   VARCHAR(100),
     CATEGORY          VARCHAR(50),
     AMOUNT            FLOAT,
     LOCATION          VARCHAR(100),
     TRANSACTION_DATE  TIMESTAMP_NTZ,
+    IS_FRAUD_ACTUAL   INT,           -- 0/1 ground truth from Kaggle
     STATUS            VARCHAR(20),
     INGESTED_AT       TIMESTAMP_NTZ  DEFAULT CURRENT_TIMESTAMP()
 );
@@ -59,6 +62,11 @@ CREATE TABLE IF NOT EXISTS TRANSACTION_FEATURES (
     IS_NEW_LOCATION        BOOLEAN,      -- not seen in user history
     LOCATION_ENTROPY       FLOAT,        -- diversity of user locations
 
+    -- Kaggle ground truth (when available)
+    IS_FRAUD_ACTUAL        INT,          -- 0 = legit, 1 = confirmed fraud
+    MERCHANT_NAME          VARCHAR(100),
+    CARDHOLDER_NAME        VARCHAR(100),
+
     COMPUTED_AT            TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
 );
 
@@ -82,6 +90,11 @@ CREATE TABLE IF NOT EXISTS FRAUD_SCORES (
     COMBINED_RISK_SCORE   FLOAT,        -- weighted combination, 0.0 to 1.0
     RISK_LEVEL            VARCHAR(20),  -- LOW / MEDIUM / HIGH / CRITICAL
     RECOMMENDATION        VARCHAR(200),
+
+    -- Kaggle ground truth (when available)
+    IS_FRAUD_ACTUAL        INT,          -- 0 = legit, 1 = confirmed fraud
+    MERCHANT_NAME          VARCHAR(100),
+    CARDHOLDER_NAME        VARCHAR(100),
 
     SCORED_AT             TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
 

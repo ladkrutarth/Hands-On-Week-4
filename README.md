@@ -26,7 +26,8 @@ GraphGuard is an end-to-end **fraud detection and dynamic authentication system*
 The system uses a hybrid approach combining **rule-based heuristics**, **statistical anomaly detection** (z-score, velocity checks), and **machine learning** (IsolationForest) to score transaction risk in real-time. An AI-powered authentication module uses **Google Gemini LLM** with **RAG (Retrieval-Augmented Generation)** over project data to dynamically generate security challenges adapted to each user's risk profile.
 
 ### Key Capabilities
-- **3,000 real transactions** across 10 users, 8 categories, 30+ merchants
+- **Real Kaggle dataset** — [kartik2112/fraud-detection](https://www.kaggle.com/datasets/kartik2112/fraud-detection) with 10 users sampled from ~1.8M Sparkov credit card transactions
+- **Ground-truth fraud labels** (`IS_FRAUD_ACTUAL`) enable real model evaluation: Precision, Recall, F1
 - **19 engineered features** per transaction (amount, velocity, geographic, temporal, categorical)
 - **Hybrid fraud scoring** with weighted combination of 5 risk signals
 - **Adaptive authentication** with meaningful questions about stores, locations, and categories (no risk scores)
@@ -92,9 +93,10 @@ The system uses a hybrid approach combining **rule-based heuristics**, **statist
 
 | Stage | Script / File | Input | Output |
 |-------|--------------|-------|--------|
+| **0. Kaggle Adapter** | `scripts/load_kaggle_data.py` | `dataset/raw/fraudTrain.csv` | `transactions_kaggle.csv` |
 | **1. Ingestion** | `scripts/ingest_csv_to_snowflake.py` | CSV file | Snowflake `RAW_TRANSACTIONS` |
 | **2. Feature Engineering** | `scripts/feature_engineering.py` | Raw transactions | `features_output.csv` (19 features) |
-| **3. Fraud Scoring** | `models/fraud_model.py` | Feature CSV | `fraud_scores_output.csv` |
+| **3. Fraud Scoring** | `models/fraud_model.py` | Feature CSV | `fraud_scores_output.csv` + Precision/Recall/F1 |
 | **4. Auth Profiling** | `models/auth_decision.py` | Fraud scores | `auth_profiles_output.csv` |
 | **5. Dashboard** | `streamlit_app.py` | All outputs | Interactive web app (Gemini + RAG) |
 

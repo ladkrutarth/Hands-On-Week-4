@@ -22,6 +22,12 @@ FEATURES_PATH = PROJECT_ROOT / "dataset" / "csv_data" / "features_output.csv"
 FRAUD_SCORES_PATH = PROJECT_ROOT / "dataset" / "csv_data" / "fraud_scores_output.csv"
 AUTH_PROFILES_PATH = PROJECT_ROOT / "dataset" / "csv_data" / "auth_profiles_output.csv"
 PIPELINE_LOGS_PATH = PROJECT_ROOT / "dataset" / "csv_data" / "pipeline_logs.csv"
+# Kaggle dataset (fallback to legacy synthetic dataset)
+TRANSACTIONS_PATH = (
+    PROJECT_ROOT / "dataset" / "csv_data" / "transactions_kaggle.csv"
+    if (PROJECT_ROOT / "dataset" / "csv_data" / "transactions_kaggle.csv").exists()
+    else PROJECT_ROOT / "dataset" / "csv_data" / "transactions_3000.csv"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +212,14 @@ def load_auth_profiles():
 def load_pipeline_logs():
     if PIPELINE_LOGS_PATH.exists():
         return pd.read_csv(PIPELINE_LOGS_PATH)
+    return pd.DataFrame()
+
+
+@st.cache_data(ttl=300)
+def load_transactions():
+    """Load raw transaction data (Kaggle or legacy synthetic)."""
+    if TRANSACTIONS_PATH.exists():
+        return pd.read_csv(TRANSACTIONS_PATH, parse_dates=["TRANSACTION_DATE"])
     return pd.DataFrame()
 
 
@@ -634,6 +648,25 @@ def render_fraud_tab(api_key: str):
         # Transaction details
         st.markdown(f"#### Transaction: `{txn_id}`")
         st.markdown(f"**Risk Level:** {risk_badge(level)}", unsafe_allow_html=True)
+
+        # Ground truth badge (Kaggle dataset with is_fraud labels)
+        if "IS_FRAUD_ACTUAL" in txn.index:
+            is_fraud = int(txn["IS_FRAUD_ACTUAL"])
+            fraud_badge_html = (
+                '<span style="background:rgba(244,67,54,0.15);color:#f44336;padding:0.2rem 0.7rem;'
+                'border-radius:12px;font-size:0.8rem;font-weight:700;border:1px solid rgba(244,67,54,0.3);">'
+                '🔴 Known Fraud</span>' if is_fraud else
+                '<span style="background:rgba(76,175,80,0.15);color:#4caf50;padding:0.2rem 0.7rem;'
+                'border-radius:12px;font-size:0.8rem;font-weight:700;border:1px solid rgba(76,175,80,0.3);">'
+                '🟢 Verified Legit</span>'
+            )
+            st.markdown(f"**Ground Truth:** {fraud_badge_html}", unsafe_allow_html=True)
+
+        if "MERCHANT_NAME" in txn.index and pd.notna(txn["MERCHANT_NAME"]):
+            st.markdown(f"**Merchant:** `{txn['MERCHANT_NAME']}`")
+        if "CARDHOLDER_NAME" in txn.index and pd.notna(txn["CARDHOLDER_NAME"]):
+            st.markdown(f"**Cardholder:** {txn['CARDHOLDER_NAME']}")
+
 
         mcol1, mcol2, mcol3 = st.columns(3)
         mcol1.metric("Combined Score", f"{txn['COMBINED_RISK_SCORE']:.4f}")

@@ -165,6 +165,10 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
         "LOCATION", "IS_NEW_LOCATION", "LOCATION_ENTROPY",
         "COMPUTED_AT",
     ]
+    # Add optional Kaggle-specific columns if present
+    for opt_col in ["IS_FRAUD_ACTUAL", "MERCHANT_NAME", "CARDHOLDER_NAME"]:
+        if opt_col in df.columns:
+            output_cols.append(opt_col)
     return df[output_cols]
 
 
@@ -176,8 +180,8 @@ def main():
     parser = argparse.ArgumentParser(description="Feature Engineering Pipeline")
     parser.add_argument(
         "--input", type=str,
-        default=str(PROJECT_ROOT / "transactions_3000.csv"),
-        help="Path to raw transactions CSV",
+        default=str(PROJECT_ROOT / "dataset" / "csv_data" / "transactions_kaggle.csv"),
+        help="Path to raw transactions CSV (default: transactions_kaggle.csv)",
     )
     parser.add_argument(
         "--output-csv", type=str, default=None,

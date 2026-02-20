@@ -198,6 +198,10 @@ def score_transactions(features_df: pd.DataFrame) -> pd.DataFrame:
         "COMBINED_RISK_SCORE", "RISK_LEVEL", "RECOMMENDATION",
         "SCORED_AT",
     ]
+    # Include Kaggle ground-truth and merchant columns when present
+    for opt_col in ["IS_FRAUD_ACTUAL", "MERCHANT_NAME", "CARDHOLDER_NAME"]:
+        if opt_col in df.columns:
+            output_cols.append(opt_col)
     return df[output_cols]
 
 
@@ -209,7 +213,7 @@ def main():
     parser = argparse.ArgumentParser(description="Fraud Scoring Model")
     parser.add_argument(
         "--input", type=str,
-        default=str(PROJECT_ROOT / "features_output.csv"),
+        default=str(PROJECT_ROOT / "dataset" / "csv_data" / "features_output.csv"),
         help="Path to features CSV (output of feature_engineering.py)",
     )
     parser.add_argument(
@@ -241,6 +245,26 @@ def main():
         print(scores_df["RISK_LEVEL"].value_counts().to_string())
         print(f"\n   Avg risk score: {scores_df['COMBINED_RISK_SCORE'].mean():.4f}")
         print(f"   Max risk score: {scores_df['COMBINED_RISK_SCORE'].max():.4f}")
+
+        # --- Ground truth evaluation (Kaggle dataset) ---
+        if "IS_FRAUD_ACTUAL" in scores_df.columns:
+            print("\n🎯 Model Evaluation vs Ground Truth (IS_FRAUD_ACTUAL):")
+            y_true = scores_df["IS_FRAUD_ACTUAL"].astype(int)
+            # Predict fraud when RISK_LEVEL is HIGH or CRITICAL
+            y_pred = scores_df["RISK_LEVEL"].isin(["HIGH", "CRITICAL"]).astype(int)
+            tp = int(((y_true == 1) & (y_pred == 1)).sum())
+            fp = int(((y_true == 0) & (y_pred == 1)).sum())
+            fn = int(((y_true == 1) & (y_pred == 0)).sum())
+            tn = int(((y_true == 0) & (y_pred == 0)).sum())
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            recall    = tp / (tp + fn) if (tp + fn) > 0 else 0
+            f1        = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+            print(f"   Total fraudulent  (actual): {y_true.sum()}")
+            print(f"   Total flagged HIGH/CRITICAL: {y_pred.sum()}")
+            print(f"   TP={tp}  FP={fp}  FN={fn}  TN={tn}")
+            print(f"   Precision : {precision:.3f}")
+            print(f"   Recall    : {recall:.3f}")
+            print(f"   F1 Score  : {f1:.3f}")
 
         log_pipeline_event("scoring", "success", len(scores_df), elapsed)
 
