@@ -218,7 +218,7 @@ def main():
     )
     parser.add_argument(
         "--output", type=str,
-        default=str(PROJECT_ROOT / "fraud_scores_output.csv"),
+        default=str(PROJECT_ROOT / "dataset" / "csv_data" / "fraud_scores_output.csv"),
         help="Output path for scored results",
     )
     args = parser.parse_args()

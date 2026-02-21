@@ -45,17 +45,15 @@ st.set_page_config(
 # Friendly Name Mapping
 # ---------------------------------------------------------------------------
 USER_NAMES = {
-    "USER_001": "Alice Smith",
-    "USER_002": "Bob Jones",
-    "USER_003": "Charlie Brown",
-    "USER_004": "Diana Prince",
-    "USER_005": "Evan Davis",
-    "USER_006": "Fiona Gallagher",
-    "USER_007": "George Miller",
-    "USER_008": "Hannah Abbott",
-    "USER_009": "Ian Wright",
-    "USER_010": "Julia Roberts"
+    "USER_001": "Alice Smith", "USER_002": "Bob Jones", "USER_003": "Charlie Brown",
+    "USER_004": "Diana Prince", "USER_005": "Evan Davis", "USER_006": "Fiona Gallagher",
+    "USER_007": "George Miller", "USER_008": "Hannah Abbott", "USER_009": "Ian Wright",
+    "USER_010": "Julia Roberts", "USER_011": "Kevin Hart", "USER_012": "Liam Neeson",
+    "USER_013": "Mila Kunis", "USER_014": "Noah Centineo", "USER_015": "Olivia Wilde",
+    "USER_016": "Paul Rudd", "USER_017": "Quinn Fabray", "USER_018": "Ryan Reynolds",
+    "USER_019": "Scarlett Johansson", "USER_020": "Tom Holland"
 }
+# Fallback for USER_021+ will just use the ID
 
 # ---------------------------------------------------------------------------
 # Custom CSS
@@ -228,6 +226,7 @@ def load_transactions():
 # ---------------------------------------------------------------------------
 @st.cache_resource
 def get_rag_engine(api_key: str):
+    """v2: Updated signature for user-specific filtering"""
     from models.rag_engine import RAGEngine
     engine = RAGEngine(api_key=api_key)
     engine.index_data()
@@ -802,6 +801,39 @@ def render_rag_tab(api_key: str):
     # Sub-tabs for Q&A and Evaluation
     rag_tab1, rag_tab2, rag_tab3 = st.tabs(["💬 Ask Questions", "📊 RAG Evaluation", "📜 Query History"])
 
+    # Sidebar-like configuration for RAG depth (placed inside tab for focus)
+    with st.sidebar:
+        if st.session_state.get("active_tab") == "🔍 RAG Explorer":
+            st.markdown("### ⚙️ RAG Settings")
+            st.info("These settings control the depth and focus of the RAG retrieval.")
+            
+            # User Filter
+            try:
+                feat_df = pd.read_csv("dataset/csv_data/features.csv")
+                user_list = ["All Users"] + sorted(feat_df["USER_ID"].unique().tolist())
+            except Exception:
+                user_list = ["All Users"]
+                
+            selected_user = st.selectbox(
+                "Filter by User ID",
+                options=user_list,
+                index=0,
+                help="Focus retrieval on a specific user's transactions and profile."
+            )
+            rag_user_id = None if selected_user == "All Users" else selected_user
+            
+            # Retrieval Depth
+            rag_top_k = st.slider(
+                "Retrieval Depth (Top-K)",
+                min_value=3,
+                max_value=20,
+                value=8,
+                help="Number of documents to retrieve. Higher values provide more context but may be slower."
+            )
+        else:
+            rag_user_id = None
+            rag_top_k = 5
+
     with rag_tab1:
         # Suggested questions
         st.markdown("**💡 Try asking:**")
@@ -830,7 +862,11 @@ def render_rag_tab(api_key: str):
                 t0 = time.time()
 
                 # RAG retrieval with detailed results
-                detailed = rag.get_detailed_results(question, n_results=5)
+                detailed = rag.get_detailed_results(
+                    question, 
+                    n_results=rag_top_k, 
+                    user_id=rag_user_id
+                )
                 retrieval_time = time.time() - t0
 
                 # LLM answer

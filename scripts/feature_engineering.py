@@ -204,7 +204,7 @@ def main():
         features_df = engineer_features(df)
         elapsed = (time.time() - t0) * 1000
 
-        output_path = args.output_csv or str(PROJECT_ROOT / "features_output.csv")
+        output_path = args.output_csv or str(PROJECT_ROOT / "dataset" / "csv_data" / "features_output.csv")
         features_df.to_csv(output_path, index=False)
         print(f"✅ Features saved to {output_path}")
         print(f"   {len(features_df)} rows, {len(features_df.columns)} columns")

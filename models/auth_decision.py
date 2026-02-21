@@ -167,7 +167,7 @@ def generate_auth_events_report(
     report_df = pd.DataFrame(profiles)
 
     if output_path is None:
-        output_path = str(PROJECT_ROOT / "auth_profiles_output.csv")
+        output_path = str(PROJECT_ROOT / "dataset" / "csv_data" / "auth_profiles_output.csv")
 
     report_df.to_csv(output_path, index=False)
     print(f"✅ Auth profiles saved to {output_path}")
@@ -265,7 +265,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Auth Decision Module")
     parser.add_argument(
         "--scores", type=str,
-        default=str(PROJECT_ROOT / "fraud_scores_output.csv"),
+        default=str(PROJECT_ROOT / "dataset" / "csv_data" / "fraud_scores_output.csv"),
         help="Path to fraud scores CSV",
     )
     parser.add_argument(

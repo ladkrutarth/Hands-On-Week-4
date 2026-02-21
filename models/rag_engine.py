@@ -161,6 +161,9 @@ def _build_transaction_summaries(
 # NEW: Aggregated statistical summaries for richer retrieval
 # ---------------------------------------------------------------------------
 
+    return docs
+
+
 def _build_aggregate_summaries(
     features_path: Path,
     fraud_path: Path,
@@ -262,6 +265,55 @@ def _build_aggregate_summaries(
     return docs
 
 
+def _build_merchant_summaries(
+    features_path: Path,
+    fraud_path: Path,
+) -> List[dict]:
+    """
+    Build summaries for top merchants by volume and risk.
+    """
+    docs: List[dict] = []
+    try:
+        feat_df = pd.read_csv(features_path) if features_path.exists() else pd.DataFrame()
+        fraud_df = pd.read_csv(fraud_path) if fraud_path.exists() else pd.DataFrame()
+    except Exception:
+        return docs
+
+    if feat_df.empty or fraud_df.empty:
+        return docs
+
+    for df in (feat_df, fraud_df):
+        df.columns = [c.upper() for c in df.columns]
+
+    merged = feat_df.merge(
+        fraud_df[["TRANSACTION_ID", "COMBINED_RISK_SCORE", "RISK_LEVEL"]],
+        on="TRANSACTION_ID", how="left",
+    )
+
+    if "MERCHANT_NAME" in merged.columns:
+        merch_stats = merged.groupby("MERCHANT_NAME").agg(
+            txn_count=("TRANSACTION_ID", "count"),
+            avg_amount=("AMOUNT", "mean"),
+            total_amount=("AMOUNT", "sum"),
+            avg_risk=("COMBINED_RISK_SCORE", "mean"),
+            high_risk_count=("RISK_LEVEL", lambda x: (x.isin(["HIGH", "CRITICAL"])).sum()),
+        ).reset_index()
+
+        # Build summaries for top 20 merchants by volume
+        for _, row in merch_stats.sort_values("total_amount", ascending=False).head(20).iterrows():
+            text = (
+                f"Merchant {row['MERCHANT_NAME']}: {int(row['txn_count'])} transactions, "
+                f"total volume ${row['total_amount']:,.0f}, avg ${row['avg_amount']:.2f}. "
+                f"Average risk {row['avg_risk']:.3f} with {int(row['high_risk_count'])} high-risk alerts."
+            )
+            docs.append({
+                "text": text,
+                "metadata": {"source": "merchant_summary", "type": "merchant_analysis", "merchant": str(row['MERCHANT_NAME'])},
+            })
+
+    return docs
+
+
 # ---------------------------------------------------------------------------
 # RAG Engine — Production-Ready
 # ---------------------------------------------------------------------------
@@ -290,7 +342,7 @@ class RAGEngine:
             print("⚠️  chromadb not installed. RAG features disabled.")
             return
 
-        self._client = chromadb.Client()
+        self._client = chromadb.PersistentClient(path=str(CHROMA_PERSIST_DIR))
 
         if self._use_gemini_embeddings:
             try:
@@ -301,14 +353,12 @@ class RAGEngine:
                 class GeminiEmbedder:
                     name = "gemini-embedding"
                     def __call__(self, input: List[str]) -> List[List[float]]:
-                        results = []
-                        for text in input:
-                            resp = client.models.embed_content(
-                                model="gemini-embedding-exp-03-07",
-                                contents=text,
-                            )
-                            results.append(resp.embeddings[0].values)
-                        return results
+                        # Batch embed for performance
+                        resp = client.models.embed_content(
+                            model="gemini-embedding-exp-03-07",
+                            contents=input,
+                        )
+                        return [e.values for e in resp.embeddings]
 
                 self._collection = self._client.get_or_create_collection(
                     name="graphguard_data",
@@ -335,8 +385,18 @@ class RAGEngine:
         if self._collection is None:
             return 0
 
+        # Check for data changes using file hashes
+        data_hash = ""
+        for p in DATA_SOURCES.values():
+            data_hash += _file_hash(p)
+        
+        current_metadata = self._collection.get(limit=1, include=["metadatas"])
+        indexed_hash = ""
+        if current_metadata and current_metadata["metadatas"]:
+            indexed_hash = current_metadata["metadatas"][0].get("data_hash", "")
+
         current_count = self._collection.count()
-        if current_count > 0 and not force:
+        if current_count > 0 and not force and indexed_hash == data_hash:
             return current_count
 
         if current_count > 0:
@@ -360,6 +420,11 @@ class RAGEngine:
             DATA_SOURCES["features"],
             DATA_SOURCES["fraud_scores"],
         ))
+        # NEW: Merchant-level summaries
+        documents.extend(_build_merchant_summaries(
+            DATA_SOURCES["features"],
+            DATA_SOURCES["fraud_scores"],
+        ))
 
         if not documents:
             return 0
@@ -367,6 +432,10 @@ class RAGEngine:
         ids = [f"doc_{i}" for i in range(len(documents))]
         texts = [d["text"] for d in documents]
         metadatas = [d["metadata"] for d in documents]
+        
+        # Inject data hash to the first doc's metadata for change detection
+        if metadatas:
+            metadatas[0]["data_hash"] = data_hash
 
         batch_size = 100
         for i in range(0, len(ids), batch_size):
@@ -395,13 +464,18 @@ class RAGEngine:
         if not self._genai_client:
             return question
 
-        prompt = f"""Rewrite this user question into a concise search query optimized for retrieving fraud detection data.
-The database contains: customer profiles (user IDs, risk scores, transaction counts, categories, locations),
-individual transactions (amounts, categories, locations, risk levels), and aggregate statistics (category risk, location risk, portfolio overview).
+        prompt = f"""Rewrite this user question into a search query optimized for a fraud detection database.
+The database contains: 
+- customer profiles (user IDs, risk scores, transaction counts, categories, locations)
+- individual transactions (amounts, categories, locations, risk levels, merchants)
+- category analysis (avg risk/amount per category)
+- location heatmap (risk per city)
+- merchant analysis (top stores, volume, and risk)
+- portfolio overview (system-wide stats)
 
 User question: {question}
 
-Return ONLY the rewritten search query, nothing else. Keep it under 30 words. Focus on key entities and data terms."""
+Return ONLY the search query. Focus on data-rich terms like "merchant fraud", "user risk summary", "high frequency categories", etc. Keep it technical and concise."""
 
         try:
             resp = self._genai_client.models.generate_content(
@@ -640,12 +714,14 @@ Return the top {top_k} most relevant indices only."""
             return "No relevant data found."
         return "\n".join(doc["text"] for doc in results)
 
-    def get_detailed_results(self, question: str, n_results: int = 5) -> dict:
+    def get_detailed_results(
+        self, question: str, n_results: int = 5, user_id: Optional[str] = None
+    ) -> dict:
         """
         Get full detailed results including confidence scores and metadata.
         Used by the enhanced Streamlit UI for structured display.
         """
-        results = self.query(question, n_results=n_results)
+        results = self.query(question, n_results=n_results, user_id=user_id)
 
         avg_confidence = (
             sum(r.get("confidence", 0) for r in results) / len(results)

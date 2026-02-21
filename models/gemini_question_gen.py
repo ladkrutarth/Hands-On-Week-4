@@ -383,23 +383,23 @@ Question: {question}
 You MUST format your response in this EXACT structure:
 
 ### 📊 Key Findings
-- 2-4 bullet points directly answering the question
-- Use specific numbers, percentages, and data from the context
-- Highlight the most important insight first
+- Directly answer the user's question with specific data points.
+- Use numbers, percentages, and metrics from the context.
+- Be analytical—don't just list facts, explain what they mean.
 
-### 📋 Analysis
-- 2-3 bullet points providing deeper interpretation
-- Compare values, identify trends or patterns
-- If asking about specific users, compare them against others
+### 📋 Detailed Analysis
+- Provide a deeper look into the patterns or trends in the data.
+- Compare values (e.g., this user vs. others, this category vs. average).
+- Identify anomalies or consistent behaviors.
 
-### ✅ Recommendations
-- 1-2 actionable takeaways based on the findings
-- Make these practical and relevant to fraud prevention
+### ✅ Strategic Recommendations
+- Offer 1-2 practical, actionable steps based on the data findings.
+- Focus on business value, fraud prevention, or user experience.
 
 IMPORTANT RULES:
-- Be CONCISE — no filler text, every word must add value
-- Use specific numbers from the context, not vague language
-- Use bullet points, not paragraphs
+- Provide MEANINGFUL, descriptive answers. Avoid one-word bullets if a sentence adds more value.
+- Use specific data from the context. If the data is missing, state it clearly.
+- Use a professional, analytical tone.
 - End with: "🔒 Confidence: [HIGH/MEDIUM/LOW] — Based on [N] data sources"
 - If data is insufficient, be honest about limitations
 """

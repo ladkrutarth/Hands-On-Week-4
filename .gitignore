@@ -4,3 +4,4 @@ __pycache__/
 chroma_db/
 *.egg-info/
 .env
+.chroma_db/
