@@ -27,10 +27,11 @@ The name **Veriscan** represents the fusion of two core security principles:
 - **SCAN** (*Scanning & Surveillance*): The power of autonomous agentic "scans" that explore transaction history, risk profiles, and now personalized financial advice.
 
 ### 🌟 Premium AI Specialized Agents
-The dashboard features a dual-model specialization for mission-critical tasks:
+The dashboard features a triple-agent specialization for mission-critical tasks:
 1. **🛡️ Security AI Analyst**: Dedicated to real-time fraud detection, system shield monitoring, and anomaly detection protocols.
-2. **💰 Financial AI Advisor**: A high-fidelity agent that provides comprehensive (>300 word) advisory reports on credit health, savings plans, and spending optimization.
-3. **🧬 Spending DNA**: An 8-axis behavioral fingerprinting system for advanced identity verification and trust scoring.
+2. **💰 Financial AI Advisor**: A high-fidelity agent providing advisory reports on credit health, savings plans, and spending optimization.
+3. **📄 PDF Intelligence**: A local RAG-powered agent that allows users to upload multiple PDF documents and chat with them privately.
+4. **🧬 Spending DNA**: An 8-axis behavioral fingerprinting system for advanced identity verification and trust scoring.
 
 
 ## System Architecture
@@ -42,13 +43,14 @@ flowchart LR
     subgraph Ingress [Ingress]
         TxnReq[Transaction]
         LoginReq[Login]
-        AdvisorReq[Advisor]
+        PDFReq[PDF Documents]
         SecurityReq[Security]
         DNAReq[DNA]
     end
 
     subgraph Router [API Router]
         AuthAuditor[🔒 Auth Auditor]
+        RAGRouter[📄 RAG Orchestrator]
     end
 
     subgraph Real [Intelligence Layers]
@@ -56,7 +58,7 @@ flowchart LR
         GuardAgent[🛡️ GuardAgent]
         FinAdvisor[💰 Financial Advisor]
         DNA[🧬 DNA]
-        RAG[RAG]
+        LocalRAG[📄 Multi-PDF RAG Engine]
     end
 
     Ingress --> Router
@@ -64,7 +66,7 @@ flowchart LR
     RealAPI --> GuardAgent
     RealAPI --> FinAdvisor
     RealAPI --> DNA
-    RealAPI --> RAG
+    RealAPI --> LocalRAG
 ```
 
 ### Architecture Layers
@@ -133,38 +135,36 @@ graph LR
 | **Scanner** | The Watchman | Scans the whole system for high-risk threats in milliseconds. | `tool_realtime_fraud_check` |
 | **Profile** | The Private Eye | Looks deep into a specific user's history and risk scores. | `tool_credit_score_impact` |
 
-### 🔍 Multi-Stage RAG Architecture
-The RAG system features a **Multi-Stage Retrieval** pipeline over **1,400+ local documents**. It uses semantic search followed by a **Re-ranking Layer** that prioritizes high-confidence Expert Fraud Intelligence (100+ expert QA pairs) over raw transaction context.
+### 📄 Multi-Stage Local RAG Architecture
+The RAG system features a **Multi-PDF Retrieval** pipeline. Users can index any number of PDF documents (e.g., bank statements, whitepapers, IC3 reports) locally. It uses semantic search with `all-MiniLM-L6-v2` embeddings and `Meta-Llama-3-8B` for context-aware Q&A.
 
 ```mermaid
 graph LR
-    subgraph Ingestion [Data Ingestion]
+    subgraph Ingestion [Privacy-First Ingestion]
+        PDF[(User PDFs)]
         TXN[(Transactions)]
-        CFPB[(CFPB Complaints)]
+        Expert[(Expert QA)]
     end
 
-    subgraph Specialized_Models [AI Brains]
-        SEC[🛡️ Security Analyst]
-        FIN[💰 Financial Advisor]
-    end
-
-    subgraph VectorDB [Semantic Memory]
+    subgraph RAG_Engine [Local Intelligence]
+        direction TB
+        Chunk[1000-char Chunking]
         Embed[all-MiniLM-L6-v2]
         Chroma[(ChromaDB)]
     end
 
-    subgraph UI [Premium UX]
-        Chart[📈 Sunset Charts]
-        Text[⬛ Black-Text Labels]
+    subgraph Inference [Agentic Response]
+        LLM[Meta-Llama-3-8B]
+        Safety[Stop-Token Guard]
     end
 
-    TXN --> Embed
-    CFPB --> Embed
+    PDF --> Chunk
+    TXN --> Chunk
+    Chunk --> Embed
     Embed --> Chroma
-    SEC --> VectorDB
-    FIN --> VectorDB
-    SEC --> UI
-    FIN --> UI
+    Chroma --> LLM
+    LLM --> Safety
+    Safety --> Reply[Context-Rich Answer]
 ```
 
 ### 🛡️ Hybrid Fraud Intelligence (ML + Heuristics)
@@ -247,12 +247,16 @@ Veriscan-Dashboard/
 │   └── analytical_queries.sql          # 📊 8 Analytical Queries
 │
 ├── dataset/csv_data/                   # Production-Ready Data Store
-│   ├── cfpb_credit_card.csv            # CFPB Complaints Base
-│   ├── financial_advisor_dataset.csv   # 💰 Advisor Training/RAG Data
+│   ├── financial_advisor_dataset.csv   # 💰 Advisor Data (90k Rows, Online-Skewed)
+│   ├── spending_dna_dataset.csv        # 🧬 DNA Trace Data (90k Rows)
 │   ├── fraud_detection_qa_dataset.json # 💡 Expert Intelligence Dataset
 │   ├── fraud_scores_output.csv         # 🛡️ Hybrid ML Fraud Scores
-│   ├── spending_dna_dataset.csv        # 🧬 Spending Fingerprints
+│   ├── top10_scam_types_by_losses.csv  # 📊 Market Contextual Data
 │   └── pipeline_logs.csv               # Pipeline Audit Trail
+│
+├── dataset/pdf_data/                   # Local RAG Knowledge Base
+│   ├── 2024_IC3Report.pdf              # Global Cybercrime Intelligence
+│   └── The-Scam-Economy.pdf            # Expert Market Research
 │
 └── docs/
     └── architecture_diagram.png        # System Architecture Diagram
@@ -304,11 +308,12 @@ graph LR
 
 ### API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
 | `GET` | `/api/health` | Health check & loaded services (advisor, guard, DNA) |
+| `POST` | `/api/rag/upload` | Multi-file PDF upload and local indexing |
+| `POST` | `/api/rag/chat` | Context-aware chat with indexed documents |
+| `POST` | `/api/llm/generate` | Direct Llama-3 inference endpoint |
 | `POST` | `/api/fraud/predict` | Single-transaction fraud prediction |
-| `GET` | `/api/fraud/high-risk?limit=N` | Top N riskiest transactions |
+| `GET` | `/api/fraud/high-risk` | Top riskiest transactions |
 | `GET` | `/api/user/{user_id}/risk` | User risk profile |
 
 ---
@@ -359,6 +364,13 @@ streamlit run streamlit_app.py --server.port 8502
 | **Vector Store** | ChromaDB (rebuilt on demand via `rag_engine_local.py`) |
 | **Config** | `scripts/ingest_config.yaml` (supports env var overrides) |
 | **Secrets** | All credentials via environment variables; `.env` in `.gitignore` |
+
+## 🛡️ Project Data Realism
+The Veriscan dataset engine has been specifically designed to reflect modern fraud profiles. 
+
+- **78% Online Skew**: In alignment with current market research, 78% of simulated fraud monetary losses are clustered in **Online Shopping** and **Electronics** categories.
+- **Scale**: The system generates **90,000 transactions** across 1,000 distinct user archetypes.
+- **DNA Fingerprinting**: Every transaction is mapped to an 8-axis behavioral vector, allowing for 1-to-N identity verification with a high-confidence trust score.
 
 ### Source
 https://consumerfed.org/press_release/americans-estimated-to-lose-119-billion-annually-to-online-scams/
