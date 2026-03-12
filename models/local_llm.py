@@ -1,7 +1,7 @@
 import os
 import anyio
 from pathlib import Path
-from mlx_lm import load, generate, sample_utils
+from mlx_lm import load, generate, sample_utils, stream_generate
 
 class LocalLLM:
     """
@@ -42,27 +42,33 @@ class LocalLLM:
         # temp=0 is faster (greedy decoding) and more consistent for logic tasks
         sampler = sample_utils.make_sampler(temp=temp)
         
-        response = generate(
+        response_text = ""
+        # Manually stream to support stopping on special tokens
+        for response in stream_generate(
             self.model, 
             self.tokenizer, 
             prompt=formatted_prompt, 
             max_tokens=max_tokens,
-            sampler=sampler,
-            verbose=False
-        )
+            sampler=sampler
+        ):
+            response_text += response.text
+            if "<|eot_id|>" in response_text or "<|start_header_id|>" in response_text:
+                break
+
         # Strip Llama-3 special tokens if they leak
         for token in ["<|begin_of_text|>", "<|eot_id|>", "<|start_header_id|>", "<|end_header_id|>", "assistant", "user"]:
-            response = response.replace(token, "")
+            if token in response_text:
+                response_text = response_text.split(token)[0]
 
-        response = response.strip()
+        response_text = response_text.strip()
         
         # Ensure response ends at the last complete sentence (period)
-        if response and not response.endswith((".", "!", "?")):
-            last_punct = max(response.rfind("."), response.rfind("!"), response.rfind("?"))
+        if response_text and not response_text.endswith((".", "!", "?")):
+            last_punct = max(response_text.rfind("."), response_text.rfind("!"), response_text.rfind("?"))
             if last_punct != -1:
-                response = response[:last_punct + 1]
+                response_text = response_text[:last_punct + 1]
 
-        return response
+        return response_text
 
     async def generate_async(self, prompt: str, max_tokens: int = 250, temp: float = 0.0) -> str:
         """Run generation in a separate thread to avoid blocking the event loop."""
@@ -74,7 +80,7 @@ class LocalLLM:
         Supports Llama 3 special tokens natively.
         Does NOT aggressively slice the output at the last period to support code / formatting.
         """
-        formatted_prompt = ""
+        formatted_prompt = "<|begin_of_text|>"
         for msg in messages:
             role = msg.get("role", "user")
             content = msg.get("content", "")
@@ -85,20 +91,24 @@ class LocalLLM:
 
         sampler = sample_utils.make_sampler(temp=temp, top_p=top_p)
         
-        response = generate(
+        response_text = ""
+        for response in stream_generate(
             self.model, 
             self.tokenizer, 
             prompt=formatted_prompt, 
             max_tokens=max_tokens,
-            sampler=sampler,
-            verbose=False
-        )
+            sampler=sampler
+        ):
+            response_text += response.text
+            if "<|eot_id|>" in response_text or "<|start_header_id|>" in response_text:
+                break
         
         # Strip Llama-3 special tokens if they leak into generation
         for token in ["<|begin_of_text|>", "<|eot_id|>", "<|start_header_id|>", "<|end_header_id|>", "assistant", "user", "system"]:
-            response = response.replace(token, "")
+            if token in response_text:
+                response_text = response_text.split(token)[0]
 
-        return response.strip()
+        return response_text.strip()
 
     async def generate_chat_async(self, messages: list[dict], max_tokens: int = 512, temp: float = 0.7, top_p: float = 0.9) -> str:
         """Run chat generation asynchronously."""

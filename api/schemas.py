@@ -196,5 +196,18 @@ class SecurityChatResponse(BaseModel):
     session_id: Optional[str] = None
 
 # ---------------------------------------------------------------------------
-# Feature: Security Analyst & Authentication
+# Feature: PDF Knowledge Chat
+# ---------------------------------------------------------------------------
+
+class DocChatRequest(BaseModel):
+    """Request for chatting with uploaded PDF knowledge."""
+    message: str = Field(..., example="What does the document say about fraud?")
+    session_id: Optional[str] = None
+    # We can add parameters like temperature, top_p etc here if needed.
+
+class DocChatResponse(BaseModel):
+    """Response from the document-aware chatbot."""
+    reply: str
+    sources: List[Dict[str, Any]]
+    session_id: Optional[str] = None
 

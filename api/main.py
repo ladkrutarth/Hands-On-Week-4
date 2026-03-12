@@ -16,11 +16,12 @@ import sys
 import uuid
 from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Optional, List
 import anyio
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+import shutil
 
 # Ensure project root is on the path for local imports
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -45,9 +46,10 @@ from api.schemas import (
     AuthLoginResponse,
     SecurityChatRequest,
     SecurityChatResponse,
-    GenericChatRequest,
-    GenericChatResponse,
+    DocChatRequest,
+    DocChatResponse,
 )
+
 from models.auth_store import get_user_store
 
 # ---------------------------------------------------------------------------
@@ -253,6 +255,75 @@ async def rag_query(req: RAGQueryRequest, request: Request):
         for r in results
     ]
     return RAGQueryResponse(query=req.query, count=len(parsed), results=parsed)
+
+
+@app.post("/api/rag/upload", tags=["Knowledge Base"])
+async def rag_upload_pdfs(files: List[UploadFile] = File(...)):
+    """Upload one or more PDFs for indexing in the local RAG engine."""
+    from models.rag_engine_local import PDF_DATA_PATH
+    PDF_DATA_PATH.mkdir(parents=True, exist_ok=True)
+    
+    results = []
+    for file in files:
+        if not file.filename.lower().endswith(".pdf"):
+            results.append({"filename": file.filename, "status": "skipped", "error": "Only PDF files are supported."})
+            continue
+        
+        file_path = PDF_DATA_PATH / file.filename
+        try:
+            with file_path.open("wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            results.append({"filename": file.filename, "status": "indexed successfully"})
+        except Exception as e:
+            results.append({"filename": file.filename, "status": "failed", "error": str(e)})
+    
+    # Trigger re-indexing once after all uploads
+    if _rag_engine:
+        _rag_engine.index_data(force=True)
+        
+    return {"uploads": results}
+
+
+@app.post("/api/rag/chat", response_model=DocChatResponse, tags=["Knowledge Base"])
+async def rag_chat(req: DocChatRequest):
+    """Conversational interface using RAG context."""
+    if not _rag_engine:
+        raise HTTPException(status_code=503, detail="RAG engine not loaded.")
+    if not _agent:
+        raise HTTPException(status_code=503, detail="LLM (GuardAgent) not loaded.")
+
+    # 1. Retrieve context
+    results = _rag_engine.query(req.message, n_results=4)
+    context = "\n\n".join([f"[{r['type'].upper()}]: {r['text']}" for r in results])
+    
+    # 2. Build messages
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are an intelligent Document Assistant. Use the provided context to answer the user's question. "
+                "If the answer is not in the context, say that you don't know based on the documents. "
+                "Keep your response concise and professional.\n\n"
+                f"CONTEXT:\n{context}"
+            )
+        },
+        {
+            "role": "user",
+            "content": req.message
+        }
+    ]
+    
+    # 3. Generate reply
+    try:
+        # Use generate_chat_async for proper multi-turn / system prompt handling
+        reply = await _agent.llm.generate_chat_async(messages, max_tokens=400, temp=0.1)
+        sources = [
+            {"text": r["text"], "metadata": r.get("metadata", {})}
+            for r in results
+        ]
+        return DocChatResponse(reply=reply, sources=sources, session_id=req.session_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 

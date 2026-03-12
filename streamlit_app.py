@@ -479,8 +479,8 @@ def render_sidebar():
         st.session_state.setdefault("nav", "🛡️ Security AI")
         st.session_state["nav"] = st.radio(
             "Go to",
-            ["🛡️ Security AI", "💰 Financial AI", "📊 Market Dash", "🔍 CFPB Market Intel", "🧬 Spending DNA"],
-            index=["🛡️ Security AI", "💰 Financial AI", "📊 Market Dash", "🔍 CFPB Market Intel", "🧬 Spending DNA"].index(
+            ["🛡️ Security AI", "💰 Financial AI", "📄 PDF Intelligence", "📊 Market Dash", "🔍 CFPB Market Intel", "🧬 Spending DNA"],
+            index=["🛡️ Security AI", "💰 Financial AI", "📄 PDF Intelligence", "📊 Market Dash", "🔍 CFPB Market Intel", "🧬 Spending DNA"].index(
                 st.session_state.get("nav", "🛡️ Security AI")
             ),
             label_visibility="collapsed",
@@ -517,6 +517,31 @@ def render_dashboard_tab(df):
 
     st.markdown("### 📊 Market Fraud Overview")
     
+    st.subheader("Top 10 Online Scam & Crime Types by Losses (Global)")
+    st.markdown("Global reported losses by category. *Note: Actual losses are likely higher due to underreporting.*")
+    
+    scam_data = pd.DataFrame({
+        "Scam Type": [
+            "Investment Scams", "Business Email Compromise", "Tech Support Scams", 
+            "Non-Payment/Delivery", "Confidence/Romance Scams", "Govt. Impersonation", 
+            "Employment Scams", "Credit Card/Check Fraud", "Real Estate/Rental", 
+            "Misc. Cyber-enabled"
+        ],
+        "Losses ($B)": [46.9, 19.8, 10.5, 5.6, 4.8, 2.9, 2.0, 1.9, 1.4, 1.2]
+    }).sort_values(by="Losses ($B)", ascending=True)
+
+    fig_scam = px.bar(
+        scam_data, x="Losses ($B)", y="Scam Type", orientation='h',
+        color="Losses ($B)", color_continuous_scale='Sunset',
+        template='plotly_white', text="Losses ($B)"
+    )
+    fig_scam.update_traces(texttemplate='$%{text}B', textposition='outside')
+    fig_scam.update_layout(showlegend=False, coloraxis_showscale=False, yaxis_title=None, height=450)
+    
+    st.plotly_chart(apply_accessible_theme(fig_scam), use_container_width=True)
+
+    st.divider()
+
     c1, c2, c3 = st.columns(3)
     with c1: st.markdown(f"<div class='metric-card'><h3>Processed</h3><div class='value'>{len(df):,}</div></div>", unsafe_allow_html=True)
     with c2: st.markdown(f"<div class='metric-card'><h3>Fraud Cases</h3><div class='value' style='color:#dc2626'>{df['is_fraud_flag'].sum():,}</div></div>", unsafe_allow_html=True)
@@ -528,7 +553,9 @@ def render_dashboard_tab(df):
         st.subheader("Fraud Heatmap by Category")
         cat_data = df.groupby('category')['is_fraud_flag'].sum().sort_values(ascending=False).reset_index()
         fig = px.bar(cat_data, x='is_fraud_flag', y='category', orientation='h', color='is_fraud_flag', 
-                     color_continuous_scale='Greys', template='plotly_white')
+                     color_continuous_scale='Sunset', template='plotly_white')
+
+
         st.plotly_chart(apply_accessible_theme(fig), use_container_width=True)
     
     with col2:
@@ -562,14 +589,6 @@ def render_dashboard_tab(df):
         else:
             st.info("No state-level data available for the map.")
 
-    st.subheader("Monthly Fraud Trends (Month & Year)")
-    trend_data = df[df['is_fraud_flag'] == True].groupby('month_key').size().reset_index(name='fraud_count')
-    fig_trend = px.line(trend_data, x='month_key', y='fraud_count', 
-                        title="Fraud Cases Trend (2-Year History)",
-                        labels={'month_key': 'Month', 'fraud_count': 'Number of Fraud Cases'},
-                        markers=True, template='plotly_white')
-    fig_trend.update_traces(line_color='#111827', line_width=2, marker=dict(size=6, color="#111827"))
-    st.plotly_chart(apply_accessible_theme(fig_trend), use_container_width=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1158,6 +1177,101 @@ def render_dna_tab():
         st.plotly_chart(fig2, use_container_width=True)
 
 
+# ---------------------------------------------------------------------------
+# Tab 6: PDF Intelligence Chat
+# ---------------------------------------------------------------------------
+def render_pdf_tab():
+    st.markdown("### 📄 PDF Intelligence & Document Chat")
+    st.markdown("Upload documents to the local RAG engine and chat with them using private AI.")
+    
+    col_upload, col_chat = st.columns([1, 2])
+    
+    with col_upload:
+        st.markdown("#### 📤 Upload Documents")
+        uploaded_files = st.file_uploader("Choose PDF files", type="pdf", accept_multiple_files=True, key="pdf_uploader")
+        
+        if uploaded_files:
+            if st.button("Index Documents", key="btn_index_pdf"):
+                with st.spinner(f"Uploading and indexing {len(uploaded_files)} document(s)..."):
+                    try:
+                        # Prepare multiple files for the request
+                        files_payload = [("files", (f.name, f.getvalue(), "application/pdf")) for f in uploaded_files]
+                        resp = requests.post(f"{API_BASE_URL}/api/rag/upload", files=files_payload, timeout=120)
+                        
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            uploads = data.get("uploads", [])
+                            success_count = sum(1 for u in uploads if u["status"] == "indexed successfully")
+                            st.success(f"Successfully indexed {success_count} file(s).")
+                            
+                            with st.expander("Upload Details"):
+                                for u in uploads:
+                                    status_emoji = "✅" if u["status"] == "indexed successfully" else "❌"
+                                    st.write(f"{status_emoji} {u['filename']}: {u['status']}")
+                                    if "error" in u:
+                                        st.caption(f"Error: {u['error']}")
+                        else:
+                            st.error(f"Error: {resp.status_code} - {resp.text}")
+                    except Exception as e:
+                        st.error(f"Failed to connect to API: {e}")
+        
+        st.divider()
+        st.markdown("#### ℹ️ About PDF RAG")
+        st.caption("Documents are processed locally. Text is chunked (1000 chars) and stored in ChromaDB.")
+
+    with col_chat:
+        st.markdown("#### 💬 Chat with Documents")
+        
+        # Chat history for this tab
+        if "pdf_chat_history" not in st.session_state:
+            st.session_state.pdf_chat_history = []
+            
+        # Display chat history
+        chat_container = st.container(height=450)
+        with chat_container:
+            for msg in st.session_state.pdf_chat_history:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+                    if "sources" in msg and msg["sources"]:
+                        with st.expander("View Sources"):
+                            for i, src in enumerate(msg["sources"]):
+                                st.caption(f"Source {i+1}: {src['text'][:200]}...")
+        
+        # User input
+        if prompt := st.chat_input("Ask a question about your documents..."):
+            st.session_state.pdf_chat_history.append({"role": "user", "content": prompt})
+            with chat_container:
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+                
+                with st.chat_message("assistant"):
+                    with st.spinner("Analyzing documents..."):
+                        try:
+                            resp = requests.post(
+                                f"{API_BASE_URL}/api/rag/chat",
+                                json={"message": prompt, "session_id": st.session_state.get("session_id")},
+                                timeout=60
+                            )
+                            if resp.status_code == 200:
+                                data = resp.json()
+                                reply = data["reply"]
+                                sources = data.get("sources", [])
+                                st.markdown(reply)
+                                if sources:
+                                    with st.expander("View Sources"):
+                                        for i, src in enumerate(sources):
+                                            st.caption(f"Source {i+1}: {src['text'][:200]}...")
+                                st.session_state.pdf_chat_history.append({"role": "assistant", "content": reply, "sources": sources})
+                            else:
+                                st.error(f"API Error: {resp.status_code}")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+            
+            if st.button("Clear Chat", key="clear_pdf_chat"):
+                st.session_state.pdf_chat_history = []
+                st.rerun()
+
+
 
 # ---------------------------------------------------------------------------
 # Main Execution
@@ -1184,6 +1298,8 @@ def main():
         render_security_ai_page()
     elif page == "💰 Financial AI":
         render_financial_ai_page()
+    elif page == "📄 PDF Intelligence":
+        render_pdf_tab()
     elif page == "📊 Market Dash":
         render_dashboard_tab(fraud_df)
     elif page == "🔍 CFPB Market Intel":

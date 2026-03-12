@@ -5,9 +5,11 @@ import json
 from chromadb.utils import embedding_functions
 from pathlib import Path
 from typing import List, Dict, Optional, Any
+import pypdf
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = PROJECT_ROOT / ".chroma_db_local"
+PDF_DATA_PATH = PROJECT_ROOT / "dataset" / "pdf_data"
 
 class RAGEngineLocal:
     """
@@ -89,8 +91,58 @@ class RAGEngineLocal:
             
             if documents:
                 self._collection.add(documents=documents, metadatas=metadatas, ids=ids)
+        
+        # 4. Index PDF Documents (the custom knowledge base)
+        if PDF_DATA_PATH.exists():
+            print(f"Indexing PDF documents from {PDF_DATA_PATH}...")
+            for pdf_file in PDF_DATA_PATH.glob("*.pdf"):
+                print(f"Processing {pdf_file.name}...")
+                try:
+                    text_content = self._extract_text_from_pdf(pdf_file)
+                    if not text_content:
+                        continue
+                    
+                    # Split into chunks of ~1000 characters with 100 char overlap
+                    chunks = self._chunk_text(text_content, chunk_size=1000, overlap=100)
+                    
+                    documents, metadatas, ids = [], [], []
+                    for i, chunk in enumerate(chunks):
+                        documents.append(chunk)
+                        metadatas.append({
+                            "type": "pdf_doc",
+                            "filename": pdf_file.name,
+                            "chunk_index": i
+                        })
+                        ids.append(f"pdf_{pdf_file.stem}_{i}")
+                    
+                    if documents:
+                        self._collection.add(documents=documents, metadatas=metadatas, ids=ids)
+                except Exception as e:
+                    print(f"Error processing {pdf_file.name}: {e}")
             
         print(f"✅ Indexed {self._collection.count()} items locally.")
+
+    def _extract_text_from_pdf(self, pdf_path: Path) -> str:
+        """Extract text content from a PDF file."""
+        text = ""
+        with open(pdf_path, "rb") as f:
+            reader = pypdf.PdfReader(f)
+            for page in reader.pages:
+                text += page.extract_text() + "\n"
+        return text.strip()
+
+    def _chunk_text(self, text: str, chunk_size: int = 1000, overlap: int = 100) -> List[str]:
+        """Split text into overlapping chunks."""
+        chunks = []
+        if len(text) <= chunk_size:
+            return [text]
+        
+        start = 0
+        while start < len(text):
+            end = start + chunk_size
+            chunks.append(text[start:end])
+            start += chunk_size - overlap
+        return chunks
 
 
     def query(self, query_text: str, n_results: int = 5) -> List[Dict[str, Any]]:
