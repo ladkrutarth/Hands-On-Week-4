@@ -34,68 +34,72 @@ The dashboard features a triple-agent specialization for mission-critical tasks:
 4. **🧬 Spending DNA**: An 8-axis behavioral fingerprinting system for advanced identity verification and trust scoring.
 
 
-## System Architecture
+## 🏗️ Production System Architecture
 
-Veriscan-Cortex is built as a layered, event-driven system.
+Veriscan-Cortex is architected as a **high-availability, privacy-first multi-agent system**. The architecture is decoupled into distinct layers to ensure scalability and secure data isolation.
 
+### 🌐 Unified Architectural Flow
 ```mermaid
-flowchart LR
-    subgraph Ingress [Ingress]
-        TxnReq[Transaction]
-        LoginReq[Login]
-        PDFReq[PDF Documents]
-        SecurityReq[Security]
-        DNAReq[DNA]
+graph TD
+    subgraph Client_Layer [Frontend: User Interface]
+        UI[Streamlit Dashboard]
+        Session[Session State Manager]
     end
 
-    subgraph Router [API Router]
-        AuthAuditor[🔒 Auth Auditor]
-        RAGRouter[📄 RAG Orchestrator]
+    subgraph API_Gateway [API Gateway & Security]
+        FastAPI[FastAPI REST Router]
+        AuthA[🔒 AI Auth Auditor]
+        SessionStore[(Redis/In-Memory Session Store)]
     end
 
-    subgraph Real [Intelligence Layers]
-        RealAPI[Real API]
-        GuardAgent[🛡️ GuardAgent]
-        FinAdvisor[💰 Financial Advisor]
-        DNA[🧬 DNA]
-        LocalRAG[📄 Multi-PDF RAG Engine]
+    subgraph Intelligence_Orchestrator [AI Intelligence Layer]
+        Router[Agentic Router]
+        SecAgent[🛡️ Security Analyst]
+        FinAgent[💰 Financial Advisor]
+        PDFAgent[📄 PDF Intelligence]
+        DNAAgent[🧬 Spending DNA]
     end
 
-    Ingress --> Router
-    Router --> RealAPI
-    RealAPI --> GuardAgent
-    RealAPI --> FinAdvisor
-    RealAPI --> DNA
-    RealAPI --> LocalRAG
+    subgraph Memory_Compute [Private Compute & Context]
+        LLM[Meta-Llama-3-8B MLX]
+        RAG[Multi-PDF RAG Engine]
+        VectorDB[(ChromaDB)]
+    end
+
+    subgraph Persistence [Data Tier]
+        Snowflake[(Snowflake Data Cloud)]
+        LocalCSV[(Production CSV Store)]
+    end
+
+    UI -->|REST: session_id| FastAPI
+    FastAPI --> AuthA
+    AuthA --> SessionStore
+    FastAPI --> Router
+    Router --> SecAgent & FinAgent & PDFAgent & DNAAgent
+    SecAgent & FinAgent & PDFAgent --> LLM
+    PDFAgent --> RAG
+    RAG --> VectorDB
+    SecAgent & FinAgent & DNAAgent --> LocalCSV
+    LocalCSV -.->|ETL| Snowflake
 ```
 
-### Architecture Layers
+### 🔒 Security & Session Lifecycle
+In a production environment, Veriscan prioritizes **Identity Veracity**:
+- **Auth Auditor**: Every authentication request (Login) is intercepted by the Auth Auditor agent. It computes a **Login Risk Score** before assigning a globally unique `session_id`.
+- **State Propagation**: The `session_id` is propagated through all microservices, ensuring that agentic memory remains isolated and consistent for the duration of the user session.
+- **Zero-Trust RAG**: PDF documents are processed entirely within the local compute environment. Embeddings and raw text never leave the host machine, matching Tier-1 financial data privacy standards.
 
-| Layer | Components | Responsibility |
-|-------|------------|----------------|
-| **Ingress** | Transaction, Login, Advisor, Security, DNA requests | All entry points into the system. |
-| **API Router** | **Auth Auditor**, Session Store | Analyzes login risk and manages sessions. |
-| **Intelligence** | GuardAgent, Financial Advisor, Spending DNA, RAG | Production agents and data. |
+### 🧩 Production Layer Specifications
 
-### Data Flow
+| Layer | Responsibility | Technology Stack |
+|-------|----------------|------------------|
+| **Client** | High-fidelity visualization & user interaction | Streamlit, Plotly Express (Sunset Scale) |
+| **Gateway** | Request routing, security auditing, & rate limiting | FastAPI, CORSMiddleware, Pydantic v2 |
+| **Logic** | Multi-agent orchestration & behavioral fingerprinting | Python 3.12, Scikit-learn (Random Forest) |
+| **Inference** | Private LLM execution & context-aware synthesis | MLX-LM (GPU Accelerated), Llama-3-8B |
+| **Storage** | Semantic memory & long-term data warehouse | ChromaDB, Snowflake, Pandas (Parquet/CSV) |
 
-1. **Authentication**: Every login request is analyzed by the **Auth Auditor**.
-2. **Normal path**: Request → API Router → Real API → GuardAgent, Financial Advisor, DNA, RAG.
-3. **Session persistence**: `session_id` (query/header/body) ties user state across all endpoints.
-
-
-| Step | Layer | What happens |
-|------|--------|----------------|
-| 1 | **Frontend** | User opens Streamlit (port 8502), chooses Financial / Security / DNA; UI calls `GET /api/health` to show which services are loaded. |
-| 2 | **Startup** | FastAPI lifespan loads once: RAG Engine, GuardAgent (LLM), FinancialAdvisorAgent (optional LLM), Spending DNA Agent. |
-| 3 | **Request** | User sends a message or triggers an action; Streamlit sends the matching REST call (e.g. `POST /api/advisor/chat`, `POST /api/security/chat`, `GET /api/fraud/high-risk`). |
-| 4 | **Backend** | API router receives request; session-aware endpoints (fraud, user risk) use `session_id`. |
-| 5 | **Agents** | Advisor: keyword routing → CSV tools → `_compose_reply` (LLM if available, else template). Security: GuardAgent tools + synthesis. DNA: 8-axis profile / compare. |
-| 6 | **Response** | FastAPI returns JSON (reply, tool_results, risk data, etc.); Streamlit renders text, charts, and tables to the user. |
-
-
-
-- The login endpoint uses the **AI Authentication Auditor** to issue a fresh `session_id` and compute a **login risk score** (analyzing suspicious usernames, weak passwords, and repeated failures).
+---
 
 ## Visual Architecture
 
