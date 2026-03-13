@@ -200,10 +200,11 @@ class SecurityChatResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class DocChatRequest(BaseModel):
-    """Request for chatting with uploaded PDF knowledge."""
+    """Request for chatting with uploaded PDF/Image/CSV knowledge."""
     message: str = Field(..., example="What does the document say about fraud?")
     session_id: Optional[str] = None
-    # We can add parameters like temperature, top_p etc here if needed.
+    images: Optional[List[str]] = None  # Base64 encoded images
+    file_types: Optional[List[str]] = None  # e.g. ["pdf", "image", "csv"]
 
 class DocChatResponse(BaseModel):
     """Response from the document-aware chatbot."""

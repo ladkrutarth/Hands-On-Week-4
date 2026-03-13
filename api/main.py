@@ -58,8 +58,10 @@ from models.auth_store import get_user_store
 _agent = None
 _rag_engine = None
 _advisor_agent = None
-_advisor_load_error: Optional[str] = None  # Captured when advisor fails to load
+_advisor_load_error: Optional[str] = None
 _dna_agent = None
+_vision_llm = None
+_multimodal_rag = None
 _login_failures: dict[str, int] = {}
 
 
@@ -73,15 +75,20 @@ async def lifespan(app: FastAPI):
     """Load heavy resources once when the server boots.
     Agents are loaded as singletons to avoid redundant data reloading.
     """
-    global _agent, _rag_engine, _advisor_agent, _advisor_load_error, _dna_agent
+    global _agent, _rag_engine, _advisor_agent, _advisor_load_error, _dna_agent, _vision_llm, _multimodal_rag
     print("🚀 Veriscan API — Loading resources...")
 
-    # 1. RAG Engine
+    # 1. RAG Engines
     try:
         from models.rag_engine_local import RAGEngineLocal
         _rag_engine = RAGEngineLocal()
         _rag_engine.index_data()
-        print("✅ RAG Engine loaded.")
+        print("✅ System RAG Engine loaded.")
+        
+        from models.multimodal_rag import MultimodalRAG
+        _multimodal_rag = MultimodalRAG()
+        _multimodal_rag.index_data()
+        print("✅ Multimodal RAG Engine loaded.")
     except Exception as e:
         print(f"⚠️  RAG Engine failed: {e}")
 
@@ -112,6 +119,14 @@ async def lifespan(app: FastAPI):
         print("✅ Spending DNA Agent loaded.")
     except Exception as e:
         print(f"⚠️  DNA Agent failed: {e}")
+
+    # 5. Vision LLM (for multimodal)
+    try:
+        from models.vision_llm import VisionLLM
+        _vision_llm = VisionLLM()
+        print("✅ Vision MLX LLM loaded.")
+    except Exception as e:
+        print(f"ℹ️ Vision LLM not loaded: {e}")
 
     print("🟢 Veriscan API is ready.")
     yield
@@ -258,53 +273,110 @@ async def rag_query(req: RAGQueryRequest, request: Request):
 
 
 @app.post("/api/rag/upload", tags=["Knowledge Base"])
-async def rag_upload_pdfs(files: List[UploadFile] = File(...)):
-    """Upload one or more PDFs for indexing in the local RAG engine."""
-    from models.rag_engine_local import PDF_DATA_PATH
+async def rag_upload(files: List[UploadFile] = File(...)):
+    """Upload PDFs, Images, or CSVs for indexing in the local RAG engine."""
+    from models.rag_engine_local import PDF_DATA_PATH, PROJECT_ROOT
+    IMAGE_DATA_PATH = PROJECT_ROOT / "dataset" / "image_data"
+    CSV_DATA_PATH = PROJECT_ROOT / "dataset" / "csv_data"
+    
     PDF_DATA_PATH.mkdir(parents=True, exist_ok=True)
+    IMAGE_DATA_PATH.mkdir(parents=True, exist_ok=True)
+    CSV_DATA_PATH.mkdir(parents=True, exist_ok=True)
     
     results = []
     for file in files:
-        if not file.filename.lower().endswith(".pdf"):
-            results.append({"filename": file.filename, "status": "skipped", "error": "Only PDF files are supported."})
+        filename = file.filename.lower()
+        target_dir = None
+        
+        if filename.endswith(".pdf"):
+            target_dir = PDF_DATA_PATH
+        elif filename.endswith((".png", ".jpg", ".jpeg", ".bmp")):
+            target_dir = IMAGE_DATA_PATH
+        elif filename.endswith(".csv"):
+            target_dir = CSV_DATA_PATH
+            
+        if not target_dir:
+            results.append({"filename": file.filename, "status": "skipped", "error": "Unsupported file type."})
             continue
         
-        file_path = PDF_DATA_PATH / file.filename
         try:
-            with file_path.open("wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
+            target_path = target_dir / file.filename
+            with open(target_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
             results.append({"filename": file.filename, "status": "indexed successfully"})
         except Exception as e:
             results.append({"filename": file.filename, "status": "failed", "error": str(e)})
-    
-    # Trigger re-indexing once after all uploads
-    if _rag_engine:
-        _rag_engine.index_data(force=True)
+
+    # Trigger re-indexing in the MULTIMODAL engine
+    if _multimodal_rag:
+        _multimodal_rag.index_data(force=True)
         
     return {"uploads": results}
 
 
 @app.post("/api/rag/chat", response_model=DocChatResponse, tags=["Knowledge Base"])
 async def rag_chat(req: DocChatRequest):
-    """Conversational interface using RAG context."""
-    if not _rag_engine:
-        raise HTTPException(status_code=503, detail="RAG engine not loaded.")
+    """Conversational interface using Multimodal RAG context."""
+    if not _multimodal_rag:
+        raise HTTPException(status_code=503, detail="Multimodal RAG engine not loaded.")
     if not _agent:
         raise HTTPException(status_code=503, detail="LLM (GuardAgent) not loaded.")
 
-    # 1. Retrieve context
-    results = _rag_engine.query(req.message, n_results=4)
+    # 1. Retrieve context from the dedicated Multimodal Engine
+    scoped_types = req.file_types or ["pdf_doc", "image_doc", "csv_doc"]
+    results = _multimodal_rag.query(
+        req.message, 
+        n_results=6, 
+        include_types=scoped_types
+    )
     context = "\n\n".join([f"[{r['type'].upper()}]: {r['text']}" for r in results])
     
-    # 2. Build messages
+    # 2. Handle visual context if images are present
+    visual_context = ""
+    if req.images and _vision_llm:
+        import base64
+        import tempfile
+        from pathlib import Path
+        for i, img_b64 in enumerate(req.images):
+            try:
+                # Save base64 to temp file for VisionLLM
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+                    img_data = base64.b64decode(img_b64.split(",")[-1] if "," in img_b64 else img_b64)
+                    tmp.write(img_data)
+                    tmp_path = tmp.name
+                
+                # Deep Visual Inspection: guide the vision model to extract nodes, links, and text
+                vision_prompt = (
+                    f"Task: Extract detailed information specifically relevant to this query: {req.message}\n"
+                    "Instructions: If this image is a diagram, mind map, flowchart, or technical report, "
+                    "carefully list all text labels, nodes, their relationships (who is connected to whom), "
+                    "and any numerical data or trends visible. Describe the structure explicitly."
+                )
+                vision_desc = await _vision_llm.analyze_image_async(tmp_path, vision_prompt)
+                visual_context += f"\n[VISUAL EVIDENCE {i+1}]: {vision_desc}"
+                os.unlink(tmp_path)
+            except Exception as e:
+                print(f"Vision error: {e}")
+
     messages = [
         {
             "role": "system",
             "content": (
-                "You are an intelligent Document Assistant. Use the provided context to answer the user's question. "
-                "If the answer is not in the context, say that you don't know based on the documents. "
-                "Keep your response concise and professional.\n\n"
-                f"CONTEXT:\n{context}"
+                "You are an Advanced Multimodal Intelligence Assistant. "
+                "Use the provided document context AND visual evidence analysis to answer accurately.\n"
+                "CRITICAL INSTRUCTION: If [VISUAL EVIDENCE] is present, it is your PRIMARY TRUTH. "
+                "The [DOCUMENT CONTEXT] should only be used as supplementary background. "
+                "If the image contradicts the document context, follow the IMAGE.\n\n"
+                "DATA VISUALIZATION INSTRUCTIONS:\n"
+                "1. If the user asks for a graph or chart of spreadsheet data, your response MUST include a Plotly JSON structure "
+                "wrapped in [PLOTLY_START] and [PLOTLY_END].\n"
+                "2. If the user asks for a MIND MAP, CONNECTION MAP, or ARCHITECTURE DIAGRAM, your response MUST include Graphviz DOT code "
+                "wrapped in unique markers like so: [MINDMAP_START] digraph G { ... dot code ... } [MINDMAP_END]. "
+                "Focus on mapping relationships found in the provided context.\n"
+                "Do NOT provide raw Python code for plotting unless explicitly asked for it.\n\n"
+                f"DOCUMENT CONTEXT:\n{context}\n"
+                f"VISUAL CONTEXT:\n{visual_context}"
             )
         },
         {
@@ -313,10 +385,9 @@ async def rag_chat(req: DocChatRequest):
         }
     ]
     
-    # 3. Generate reply
+    # 4. Generate reply
     try:
-        # Use generate_chat_async for proper multi-turn / system prompt handling
-        reply = await _agent.llm.generate_chat_async(messages, max_tokens=400, temp=0.1)
+        reply = await _agent.llm.generate_chat_async(messages, max_tokens=600, temp=0.1)
         sources = [
             {"text": r["text"], "metadata": r.get("metadata", {})}
             for r in results

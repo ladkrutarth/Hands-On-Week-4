@@ -36,6 +36,9 @@ class SpendingDNAAgent:
     def df(self) -> pd.DataFrame:
         if self._df is None:
             self._df = pd.read_csv(DNA_DATA_PATH)
+            self._df["transaction_date"] = pd.to_datetime(self._df["transaction_date"])
+            self._df["year"] = self._df["transaction_date"].dt.year
+            self._df["month"] = self._df["transaction_date"].dt.month
         return self._df
 
     # ── Normalise a single axis to [0, 1] for radar chart ─────────────────
@@ -91,6 +94,46 @@ class SpendingDNAAgent:
             "total_sessions":   total_sess,
             "trust_grade":      trust_grade,
             "time_preference":  TIME_LABELS.get(int(raw.get("time_of_day_pref", 1)), "Afternoon"),
+        }
+
+    def compute_yearly_dna(self, user_id: str, year: int) -> dict[str, Any]:
+        """Compute DNA for a specific year."""
+        user_df = self.df[(self.df["user_id"] == user_id) & (self.df["year"] == year)]
+        if user_df.empty:
+            return {"error": f"No data for {year}"}
+
+        normalized: dict[str, float] = {}
+        for col, _ in DNA_AXES:
+            if col == "time_of_day_pref":
+                val = float(user_df[col].mode().iloc[0]) if not user_df[col].empty else 1
+            else:
+                val = float(user_df[col].mean())
+            normalized[col] = self._normalize(col, val)
+        
+        return {
+            "year": year,
+            "radar_values": [normalized[col] for col, _ in DNA_AXES],
+            "avg_trust": round(float(user_df["trust_score"].mean()), 3) if not user_df.empty else 0
+        }
+
+    def compute_monthly_evolution(self, user_id: str) -> dict[str, Any]:
+        """Compute monthly trust score and deviation trend."""
+        user_df = self.df[self.df["user_id"] == user_id].copy()
+        if user_df.empty:
+            return {"error": "No data"}
+
+        # Group by year-month
+        trend = user_df.groupby(["year", "month"]).agg({
+            "trust_score": "mean",
+            "dna_deviation_score": "mean"
+        }).reset_index()
+        
+        trend["label"] = trend.apply(lambda r: f"{int(r['year'])}-{int(r['month']):02d}", axis=1)
+        
+        return {
+            "labels": trend["label"].tolist(),
+            "trust_scores": [round(x, 3) for x in trend["trust_score"].tolist()],
+            "deviations": [round(x, 3) for x in trend["dna_deviation_score"].tolist()]
         }
 
     def compare_session(self, user_id: str, session_overrides: dict | None = None) -> dict[str, Any]:

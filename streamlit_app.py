@@ -21,6 +21,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import joblib
 import requests
+import re
+import json
 
 # API Backend URL
 API_BASE_URL = os.environ.get("VERISCAN_API_URL", "http://localhost:8000")
@@ -476,13 +478,16 @@ def render_sidebar():
 
         st.divider()
         st.markdown("### Navigation")
-        st.session_state.setdefault("nav", "🛡️ Security AI")
+        nav_options = ["🛡️ Security AI", "💰 Financial AI", "🧬 Multimodal Intelligence", "📊 Market Dash", "🔍 CFPB Market Intel", "🧬 Spending DNA"]
+        current_nav = st.session_state.get("nav", "🛡️ Security AI")
+        if current_nav not in nav_options:
+            current_nav = "🛡️ Security AI"
+            st.session_state["nav"] = current_nav
+
         st.session_state["nav"] = st.radio(
             "Go to",
-            ["🛡️ Security AI", "💰 Financial AI", "📄 PDF Intelligence", "📊 Market Dash", "🔍 CFPB Market Intel", "🧬 Spending DNA"],
-            index=["🛡️ Security AI", "💰 Financial AI", "📄 PDF Intelligence", "📊 Market Dash", "🔍 CFPB Market Intel", "🧬 Spending DNA"].index(
-                st.session_state.get("nav", "🛡️ Security AI")
-            ),
+            nav_options,
+            index=nav_options.index(current_nav),
             label_visibility="collapsed",
         )
 
@@ -517,7 +522,7 @@ def render_dashboard_tab(df):
 
     st.markdown("### 📊 Market Fraud Overview")
     
-    st.subheader("Top 10 Online Scam & Crime Types by Losses (Global)")
+    st.subheader("📉 Top 10 Online Scam & Crime Types by Losses (Global)")
     st.markdown("Global reported losses by category. *Note: Actual losses are likely higher due to underreporting.*")
     
     from models.agent_tools_data import GLOBAL_SCAM_STATS
@@ -544,46 +549,80 @@ def render_dashboard_tab(df):
     with c3: st.markdown(f"<div class='metric-card'><h3>Fraud Risk</h3><div class='value'>{(df['is_fraud_flag'].mean()*100):.1f}%</div></div>", unsafe_allow_html=True)
 
     st.divider()
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Fraud Heatmap by Category")
-        cat_data = df.groupby('category')['is_fraud_flag'].sum().sort_values(ascending=False).reset_index()
-        fig = px.bar(cat_data, x='is_fraud_flag', y='category', orientation='h', color='is_fraud_flag', 
-                     color_continuous_scale='Sunset', template='plotly_white')
-
-
-        st.plotly_chart(apply_accessible_theme(fig), use_container_width=True)
+    # ── Full Width Row 1: Fraud Heatmap ──
+    st.subheader("Fraud Heatmap by Category")
+    cat_data = df.groupby('category')['is_fraud_flag'].sum().sort_values(ascending=False).reset_index()
     
-    with col2:
-        st.subheader("Interactive Fraud Bubble Map (US)")
-        state_data = df.groupby("state")["is_fraud_flag"].sum().reset_index()
-        state_data = state_data[state_data["state"].notna()]
-        if not state_data.empty:
-            min_cases = int(state_data["is_fraud_flag"].min())
-            max_cases = int(state_data["is_fraud_flag"].max())
-            cutoff = st.slider(
-                "Show states with at least this many fraud cases:",
-                min_value=min_cases,
-                max_value=max_cases,
-                value=min(max_cases // 10, max_cases),
-                key="fraud_map_cutoff",
-            )
-            filtered = state_data[state_data["is_fraud_flag"] >= cutoff]
-            fig = px.scatter_geo(
-                filtered,
-                locations="state",
-                locationmode="USA-states",
-                size="is_fraud_flag",
-                color="is_fraud_flag",
-                scope="usa",
-                hover_name="state",
-                labels={"is_fraud_flag": "Fraud cases"},
-                color_continuous_scale=SEQ_BLUE,
-            )
-            fig.update_traces(marker_line_color="white", marker_line_width=0.6, opacity=0.9)
-            st.plotly_chart(apply_accessible_theme(fig, title="Fraud cases by state (bubble map)"), use_container_width=True)
-        else:
-            st.info("No state-level data available for the map.")
+    # Add visual icons to category parts
+    cat_icons = {
+        "Groceries": "🍎 Groceries",
+        "Dining & Restaurants": "🍔 Dining & Restaurants",
+        "Online Shopping": "🛒 Online Shopping",
+        "Healthcare": "💊 Healthcare",
+        "Travel & Leisure": "✈️ Travel & Leisure",
+        "Entertainment": "🎬 Entertainment",
+        "Subscriptions": "📅 Subscriptions",
+        "Housing (Rent/Mortgage)": "🏠 Housing",
+        "Utilities & Bills": "🧾 Utilities & Bills",
+        "Misc / Cash": "📦 Misc / Cash",
+        "Transportation & Gas": "⛽ Transportation & Gas",
+        "Clothing & Fashion": "🛍️ Clothing & Fashion",
+        "Electronics": "💻 Electronics",
+        "Education": "📚 Education",
+        "Insurance": "🛡️ Insurance"
+    }
+    # Fallback for synthetic/fraud categories just in case
+    legacy_icons = {
+        "shopping_net": "🛒 Shopping (Net)",
+        "shopping_pos": "🛍️ Shopping (POS)",
+        "grocery_net": "🍎 Grocery (Net)",
+        "grocery_pos": "🏪 Grocery (POS)",
+        "gas_transport": "⛽ Gas & Transport",
+        "food_dining": "🍔 Food & Dining"
+    }
+    cat_icons.update(legacy_icons)
+    
+    cat_data['category'] = cat_data['category'].apply(lambda x: cat_icons.get(x, f"❓ {str(x).title()}"))
+    
+    fig_cat = px.bar(cat_data, x='is_fraud_flag', y='category', orientation='h', color='is_fraud_flag', 
+                     color_continuous_scale='Sunset', template='plotly_white')
+    
+    # Increase chart size
+    fig_cat.update_layout(height=600)
+
+    st.plotly_chart(apply_accessible_theme(fig_cat), use_container_width=True)
+    
+    st.divider()
+    # ── Full Width Row 2: Bubble Map ──
+    st.subheader("📍 Interactive Fraud Bubble Map (US)")
+    state_data = df.groupby("state")["is_fraud_flag"].sum().reset_index()
+    state_data = state_data[state_data["state"].notna()]
+    if not state_data.empty:
+        min_cases = int(state_data["is_fraud_flag"].min())
+        max_cases = int(state_data["is_fraud_flag"].max())
+        cutoff = st.slider(
+            "Show states with at least this many fraud cases:",
+            min_value=min_cases,
+            max_value=max_cases,
+            value=min(max_cases // 10, max_cases),
+            key="fraud_map_cutoff",
+        )
+        filtered = state_data[state_data["is_fraud_flag"] >= cutoff]
+        fig_map = px.scatter_geo(
+            filtered,
+            locations="state",
+            locationmode="USA-states",
+            size="is_fraud_flag",
+            color="is_fraud_flag",
+            scope="usa",
+            hover_name="state",
+            labels={"is_fraud_flag": "Fraud cases"},
+            color_continuous_scale=SEQ_BLUE,
+        )
+        fig_map.update_traces(marker_line_color="white", marker_line_width=0.6, opacity=0.9)
+        st.plotly_chart(apply_accessible_theme(fig_map, title="Fraud cases by state (bubble map)"), use_container_width=True)
+    else:
+        st.info("No state-level data available for the map.")
 
 
 
@@ -656,8 +695,40 @@ def render_cfpb_tab(df):
     with c2:
         st.markdown("#### 💬 AI Intelligence & Search")
         st.info("Query the knowledge base for fraud patterns or policy details.")
+        
+        if "cfpb_run_q" not in st.session_state:
+            st.session_state.cfpb_run_q = False
+
+        def set_cfpb_preset(q):
+            st.session_state.cfpb_rag_q = q
+            st.session_state.cfpb_run_q = True
+
+        # Quick Presets
+        st.markdown("<p style='font-size:0.8rem; font-weight:bold; margin-bottom:5px; color:#64748b;'>Quick Insights:</p>", unsafe_allow_html=True)
+        p1, p2 = st.columns(2)
+        p1.button("📑 Billing Disputes", on_click=set_cfpb_preset, args=("What are the standard procedures and timelines for resolving billing disputes according to consumer complaints?",), use_container_width=True, key="p1")
+        p2.button("💳 Lost/Stolen Issues", on_click=set_cfpb_preset, args=("Summarize the most common issues consumers face when reporting a lost or stolen credit card.",), use_container_width=True, key="p2")
+        
+        p3, p4 = st.columns(2)
+        p3.button("🆔 Identity Theft Scenarios", on_click=set_cfpb_preset, args=("Search for 'identity theft'. What are the most frequent scenarios where consumers realize their identity was stolen?",), use_container_width=True, key="p3")
+        p4.button("🚫 Unauthorized Discovery", on_click=set_cfpb_preset, args=("Find context on 'unauthorized transactions'. What evidence do consumers typically provide to prove they did not make a charge?",), use_container_width=True, key="p4")
+        
+        st.button("🎧 Service Dissatisfaction", on_click=set_cfpb_preset, args=("What are the primary reasons consumers express dissatisfaction with customer service in the credit card industry?",), use_container_width=True, key="p5")
+
+        st.markdown("<p style='font-size:0.8rem; font-weight:bold; margin-top:15px; margin-bottom:5px; color:#64748b;'>Expert Intelligence Presets:</p>", unsafe_allow_html=True)
+        e1, e2 = st.columns(2)
+        e1.button("📊 IC3 Fraud Trends", on_click=set_cfpb_preset, args=("What are the key findings and fraud trends from the 2024 IC3 Report?",), use_container_width=True, key="e1")
+        e2.button("💸 Scam Economy Costs", on_click=set_cfpb_preset, args=("Analyze the global financial impact and 'true cost' of the scam economy based on recent reports.",), use_container_width=True, key="e2")
+        
+        e3, e4 = st.columns(2)
+        e3.button("🎯 High-Loss Scams", on_click=set_cfpb_preset, args=("Identify which scam types resulted in the highest victim losses in 2024 according to the data.",), use_container_width=True, key="e3")
+        e4.button("🏢 BEC Scam Targets", on_click=set_cfpb_preset, args=("Search for 'Business Email Compromise'. How do these scams typically target organizations?",), use_container_width=True, key="e4")
+
+        st.divider()
         query = st.text_input("Search context:", placeholder="e.g. Find high-value travel anomalies...", key="cfpb_rag_q")
-        if st.button("Query Knowledge Base", key="cfpb_rag_btn") and query:
+        
+        if (st.button("Query Knowledge Base", key="cfpb_rag_btn") or st.session_state.cfpb_run_q) and query:
+            st.session_state.cfpb_run_q = False # Reset trigger
             with st.spinner("Analyzing..."):
                 try:
                     sid = st.session_state.get("session_id")
@@ -668,8 +739,32 @@ def render_cfpb_tab(df):
                     if resp.status_code == 200:
                         data = resp.json()
                         if data["results"]:
-                            for r in data["results"]:
-                                st.markdown(f"<div class='rag-answer'>{r}</div>", unsafe_allow_html=True)
+                            for res in data["results"]:
+                                # Extract fields from the RAGResult
+                                txt = res.get("text", "")
+                                meta = res.get("metadata", {})
+                                conf = res.get("confidence", 0)
+                                rtype = res.get("type", "unknown")
+                                
+                                # Visual Badges
+                                c_color = "#16a34a" if conf > 0.8 else ("#d97706" if conf > 0.6 else "#dc2626")
+                                badges = f'<span style="background:{c_color}20; color:{c_color}; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:bold; margin-right:5px;">{conf:.0%} Match</span>'
+                                
+                                if rtype == "complaint":
+                                    badges += f'<span style="background:#eff6ff; color:#1d4ed8; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:bold; margin-right:5px;">🏢 {meta.get("company","")}</span>'
+                                    badges += f'<span style="background:#fef2f2; color:#991b1b; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:bold; margin-right:5px;">📍 {meta.get("state","")}</span>'
+                                elif rtype in ["expert_qa", "scam_profile"]:
+                                    badges += f'<span style="background:#f0fdf4; color:#166534; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:bold; margin-right:5px;">🌟 Expert Intel</span>'
+                                elif rtype == "pdf_doc":
+                                    fname = meta.get("filename", "Document")
+                                    badges += f'<span style="background:#fff7ed; color:#9a3412; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:bold; margin-right:5px;">📄 PDF Source: {fname}</span>'
+                                
+                                st.markdown(f"""
+                                <div class='rag-answer' style='border-left: 4px solid {c_color};'>
+                                    <div style='margin-bottom:8px;'>{badges}</div>
+                                    <div style='font-size:0.95rem;'>{txt}</div>
+                                </div>
+                                """, unsafe_allow_html=True)
                         else:
                             st.info("No matching context found.")
                 except Exception as e:
@@ -984,11 +1079,29 @@ def render_security_ai_page():
 
     st.divider()
     st.markdown("#### 💬 Security Chat")
-    qa1, qa2 = st.columns(2)
+    qa1, qa2, qa3 = st.columns(3)
     if qa1.button("🔍 Run Fraud Scan", use_container_width=True, key="sec_preset_1"):
         st.session_state["sec_input"] = "Scan my recent transactions for any signs of fraud."
     if qa2.button("🧯 Incident Playbook", use_container_width=True, key="sec_preset_2"):
         st.session_state["sec_input"] = "Provide an incident response playbook for suspicious card activity."
+    if qa3.button("🛡️ Risk Audit", use_container_width=True, key="sec_preset_3"):
+        st.session_state["sec_input"] = "Perform a full security risk audit for my account profile."
+
+    qa4, qa5, qa6 = st.columns(3)
+    if qa4.button("📍 Access Monitor", use_container_width=True, key="sec_preset_4"):
+        st.session_state["sec_input"] = "Review my recent login locations and flag any geographical anomalies."
+    if qa5.button("💳 Card Security", use_container_width=True, key="sec_preset_5"):
+        st.session_state["sec_input"] = "Check for any unauthorized card-not-present transaction patterns."
+    if qa6.button("🌐 Network Health", use_container_width=True, key="sec_preset_6"):
+        st.session_state["sec_input"] = "Analyze the network protocols and IP reputation of my recent sessions."
+
+    qa7, qa8, qa9 = st.columns(3)
+    if qa7.button("👤 Identity Check", use_container_width=True, key="sec_preset_7"):
+        st.session_state["sec_input"] = "Verify if any of my personal identity data has been flagged in recent breaches."
+    if qa8.button("📱 Device Trust", use_container_width=True, key="sec_preset_8"):
+        st.session_state["sec_input"] = "Evaluate the trust score of the devices used to access my account."
+    if qa9.button("🔒 Auth Audit", use_container_width=True, key="sec_preset_9"):
+        st.session_state["sec_input"] = "Review my multi-factor authentication history for any suspicious bypass attempts."
 
     user_q = st.text_area(
         "Request security intelligence",
@@ -1235,6 +1348,58 @@ def render_dna_tab():
         st.markdown(f"**Time Preference:** {dna['time_preference']}")
         st.markdown(f"**Anomalous Sessions:** {dna['anomalous_count']:,} / {dna['total_sessions']:,}")
 
+    # Yearly & Monthly Evolution
+    st.divider()
+    st.markdown("#### 📅 Historical DNA Analysis")
+    
+    col_yearly, col_monthly = st.columns(2)
+    
+    with col_yearly:
+        st.markdown("**Year-over-Year DNA Comparison**")
+        dna_2024 = dna_agent.compute_yearly_dna(selected, 2024)
+        dna_2025 = dna_agent.compute_yearly_dna(selected, 2025)
+        
+        if "error" not in dna_2024 and "error" not in dna_2025:
+            labels = dna["radar_labels"]
+            fig_yoy = go.Figure()
+            fig_yoy.add_trace(go.Scatterpolar(
+                r=dna_2024["radar_values"] + [dna_2024["radar_values"][0]],
+                theta=labels + [labels[0]],
+                fill="toself", name="2024 DNA", line=dict(color="#94a3b8")
+            ))
+            fig_yoy.add_trace(go.Scatterpolar(
+                r=dna_2025["radar_values"] + [dna_2025["radar_values"][0]],
+                theta=labels + [labels[0]],
+                fill="toself", name="2025 DNA", line=dict(color="#4f46e5", width=3)
+            ))
+            fig_yoy.update_layout(
+                polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
+                height=400, margin=dict(l=40, r=40, t=30, b=30), showlegend=True
+            )
+            st.plotly_chart(fig_yoy, use_container_width=True)
+        else:
+            st.warning("Insufficient historical data for year-over-year comparison.")
+
+    with col_monthly:
+        st.markdown("**Monthly DNA Trust Evolution**")
+        evolution = dna_agent.compute_monthly_evolution(selected)
+        if "error" not in evolution:
+            evol_df = pd.DataFrame({
+                "Month": evolution["labels"],
+                "Trust Score": evolution["trust_scores"],
+                "Deviation": evolution["deviations"]
+            })
+            
+            import plotly.express as px
+            fig_evol = px.line(evol_df, x="Month", y=["Trust Score", "Deviation"],
+                              color_discrete_sequence=["#16a34a", "#dc2626"],
+                              markers=True)
+            fig_evol.update_layout(height=400, margin=dict(l=10, r=10, t=30, b=10),
+                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            st.plotly_chart(fig_evol, use_container_width=True)
+        else:
+            st.warning("No monthly trend data available.")
+
     # Session comparison
     st.divider()
     st.markdown("#### 🔍 Session vs. DNA Comparison")
@@ -1267,22 +1432,29 @@ def render_dna_tab():
 # ---------------------------------------------------------------------------
 # Tab 6: PDF Intelligence Chat
 # ---------------------------------------------------------------------------
-def render_pdf_tab():
-    st.markdown("### 📄 PDF Intelligence & Document Chat")
-    st.markdown("Upload documents to the local RAG engine and chat with them using private AI.")
+# ---------------------------------------------------------------------------
+def render_multimodal_tab():
+    st.markdown("### 🧬 Multimodal Intelligence & Evidence Analysis")
+    st.markdown("Upload PDFs, Images, and CSVs to analyze evidence using local Vision-AI and RAG.")
     
     col_upload, col_chat = st.columns([1, 2])
     
     with col_upload:
-        st.markdown("#### 📤 Upload Documents")
-        uploaded_files = st.file_uploader("Choose PDF files", type="pdf", accept_multiple_files=True, key="pdf_uploader")
+        st.markdown("#### 📤 Upload Evidence")
+        uploaded_files = st.file_uploader("Choose files (PDF, PNG, JPG, CSV)", type=["pdf", "png", "jpg", "jpeg", "csv"], accept_multiple_files=True, key="multimodal_uploader")
         
         if uploaded_files:
             if st.button("Index Documents", key="btn_index_pdf"):
                 with st.spinner(f"Uploading and indexing {len(uploaded_files)} document(s)..."):
                     try:
                         # Prepare multiple files for the request
-                        files_payload = [("files", (f.name, f.getvalue(), "application/pdf")) for f in uploaded_files]
+                        files_payload = []
+                        for f in uploaded_files:
+                            mime = "application/pdf"
+                            if f.name.lower().endswith((".png", ".jpg", ".jpeg")): mime = "image/png"
+                            elif f.name.lower().endswith(".csv"): mime = "text/csv"
+                            files_payload.append(("files", (f.name, f.getvalue(), mime)))
+                            
                         resp = requests.post(f"{API_BASE_URL}/api/rag/upload", files=files_payload, timeout=120)
                         
                         if resp.status_code == 200:
@@ -1301,24 +1473,99 @@ def render_pdf_tab():
                             st.error(f"Error: {resp.status_code} - {resp.text}")
                     except Exception as e:
                         st.error(f"Failed to connect to API: {e}")
+
+        # --- CSV Visualization logic (Outside button so it stays visible on Rerun) ---
+        csv_files = [f for f in uploaded_files if f.name.lower().endswith(".csv")]
+        if csv_files:
+            st.divider()
+            st.markdown("#### 📊 Data Insights")
+            for cf in csv_files:
+                try:
+                    df = pd.read_csv(cf)
+                    with st.expander(f"Visualization: {cf.name}", expanded=True):
+                        st.dataframe(df.head(10), use_container_width=True)
+                        
+                        # Identify columns
+                        cols = df.columns.tolist()
+                        # Better detection: look for date or time but also check if the column can be parsed
+                        date_col = next((c for c in cols if any(k in c.lower() for k in ["date", "time", "timestamp", "period", "day", "month", "year"])), None)
+                        num_cols = df.select_dtypes(include=["number"]).columns.tolist()
+                        
+                        # If no obvious date col, check if first few rows of any column look like dates
+                        if not date_col:
+                            for c in cols:
+                                try:
+                                    if pd.to_datetime(df[c].head(3), errors='coerce').notnull().all():
+                                        date_col = c
+                                        break
+                                except: continue
+
+                        if date_col and num_cols:
+                            df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+                            df = df.dropna(subset=[date_col])
+                            df = df.sort_values(date_col)
+                            import plotly.express as px
+                            fig = px.line(df, x=date_col, y=num_cols[0], title=f"{num_cols[0]} over Time",
+                                          template="plotly_white", markers=True)
+                            fig.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
+                            st.plotly_chart(fig, use_container_width=True)
+                        elif len(num_cols) >= 1:
+                            import plotly.express as px
+                            # Simple bar if no date
+                            cat_col = next((c for c in cols if c not in num_cols), cols[0])
+                            fig = px.bar(df.head(20), x=cat_col, y=num_cols[0], title=f"{num_cols[0]} by {cat_col}",
+                                         template="plotly_white")
+                            fig.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info(f"Loaded {len(df)} rows, but found no numerical columns to graph.")
+                except Exception as e:
+                    st.error(f"Could not visualize {cf.name}: {e}")
         
         st.divider()
-        st.markdown("#### ℹ️ About PDF RAG")
-        st.caption("Documents are processed locally. Text is chunked (1000 chars) and stored in ChromaDB.")
+        st.markdown("#### ℹ️ About Multimodal RAG")
+        st.caption("All data is processed locally. Images are analyzed via Vision-LLM and OCR. CSVs are indexed for structural search.")
 
     with col_chat:
-        st.markdown("#### 💬 Chat with Documents")
-        
-        # Chat history for this tab
-        if "pdf_chat_history" not in st.session_state:
-            st.session_state.pdf_chat_history = []
+        # Ensure session_id exists for context isolation
+        if "session_id" not in st.session_state:
+            st.session_state.session_id = str(uuid.uuid4())[:12]
+            
+        chat_header_col1, chat_header_col2 = st.columns([4, 1])
+        with chat_header_col1:
+            st.markdown("#### 💬 Chat with Documents")
+        with chat_header_col2:
+            if st.button("🧹 Clear", key="clear_pdf_chat_top", help="Clear chat history"):
+                st.session_state.pdf_chat_history = []
+                st.rerun()
             
         # Display chat history
         chat_container = st.container(height=450)
         with chat_container:
             for msg in st.session_state.pdf_chat_history:
                 with st.chat_message(msg["role"]):
-                    st.markdown(msg["content"])
+                    # Helper to render text + plotly charts + mindmaps
+                    text = msg["content"]
+                    
+                    # 1. Split for Plotly
+                    parts = re.split(r"\[PLOTLY_START\](.*?)\[PLOTLY_END\]", text, flags=re.DOTALL)
+                    for i, part in enumerate(parts):
+                        if i % 2 == 0:
+                            # 2. Within text parts, split for Mindmaps
+                            sub_parts = re.split(r"\[MINDMAP_START\](.*?)\[MINDMAP_END\]", part, flags=re.DOTALL)
+                            for j, sub_part in enumerate(sub_parts):
+                                if j % 2 == 0:
+                                    if sub_part.strip(): st.markdown(sub_part)
+                                else:
+                                    try:
+                                        st.graphviz_chart(sub_part.strip())
+                                    except: st.caption("Mindmap data corrupted.")
+                        else:
+                            try:
+                                fig_json = json.loads(part.strip())
+                                st.plotly_chart(fig_json, use_container_width=True)
+                            except: st.caption("Chart data corrupted.")
+
                     if "sources" in msg and msg["sources"]:
                         with st.expander("View Sources"):
                             for i, src in enumerate(msg["sources"]):
@@ -1334,16 +1581,51 @@ def render_pdf_tab():
                 with st.chat_message("assistant"):
                     with st.spinner("Analyzing documents..."):
                         try:
+                            # Auto-attach recently uploaded images if they are in the current session
+                            import base64
+                            images_b64 = []
+                            if uploaded_files:
+                                for f in uploaded_files:
+                                    if f.name.lower().endswith((".png", ".jpg", ".jpeg")):
+                                        b64 = base64.b64encode(f.getvalue()).decode()
+                                        images_b64.append(b64)
+                            
+                            payload = {
+                                "message": prompt,
+                                "session_id": st.session_state.get("session_id"),
+                                "images": images_b64,
+                                "file_types": ["pdf_doc", "image_doc", "csv_doc"] # Strictly scope to uploaded data
+                            }
+                            
                             resp = requests.post(
                                 f"{API_BASE_URL}/api/rag/chat",
-                                json={"message": prompt, "session_id": st.session_state.get("session_id")},
-                                timeout=60
+                                json=payload,
+                                timeout=120
                             )
                             if resp.status_code == 200:
                                 data = resp.json()
                                 reply = data["reply"]
                                 sources = data.get("sources", [])
-                                st.markdown(reply)
+                                
+                                # Render with plotly and mindmap support
+                                parts = re.split(r"\[PLOTLY_START\](.*?)\[PLOTLY_END\]", reply, flags=re.DOTALL)
+                                for i, part in enumerate(parts):
+                                    if i % 2 == 0:
+                                        # Split for mindmaps
+                                        sub_parts = re.split(r"\[MINDMAP_START\](.*?)\[MINDMAP_END\]", part, flags=re.DOTALL)
+                                        for j, sub_part in enumerate(sub_parts):
+                                            if j % 2 == 0:
+                                                if sub_part.strip(): st.markdown(sub_part)
+                                            else:
+                                                try:
+                                                    st.graphviz_chart(sub_part.strip())
+                                                except: st.caption("Mindmap data corrupted.")
+                                    else:
+                                        try:
+                                            fig_json = json.loads(part.strip())
+                                            st.plotly_chart(fig_json, use_container_width=True)
+                                        except: st.caption("Chart data corrupted.")
+
                                 if sources:
                                     with st.expander("View Sources"):
                                         for i, src in enumerate(sources):
@@ -1354,9 +1636,6 @@ def render_pdf_tab():
                         except Exception as e:
                             st.error(f"Error: {e}")
             
-            if st.button("Clear Chat", key="clear_pdf_chat"):
-                st.session_state.pdf_chat_history = []
-                st.rerun()
 
 
 
@@ -1385,8 +1664,8 @@ def main():
         render_security_ai_page()
     elif page == "💰 Financial AI":
         render_financial_ai_page()
-    elif page == "📄 PDF Intelligence":
-        render_pdf_tab()
+    elif page == "🧬 Multimodal Intelligence":
+        render_multimodal_tab()
     elif page == "📊 Market Dash":
         render_dashboard_tab(fraud_df)
     elif page == "🔍 CFPB Market Intel":
