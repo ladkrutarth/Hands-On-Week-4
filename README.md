@@ -111,6 +111,8 @@ Veriscan-Cortex works like a professional security team. Instead of one slow AI 
 
 ```mermaid
 graph LR
+    User([User Query]) --> ModelSelector{🔍 Model Selector}
+    
     ModelSelector -->|Security| SecAnalyst[🛡️ Security Analyst]
     ModelSelector -->|Financial| FinOrchestrator[💰 Financial Orchestrator]
     ModelSelector -->|Multimodal| MultiAnalyst[🧬 Multimodal Expert]
@@ -128,8 +130,15 @@ graph LR
         FinOrchestrator --> CurrAgent["⌚ Current Analyst"]
     end
 
+    subgraph Multimodal_Domain [Document & Visual Intel]
+        direction LR
+        MultiAnalyst --> RAG[🔍 RAG Search]
+        MultiAnalyst --> Vision[👁️ Vision Analyzer]
+    end
+
     Security_Domain --> Report[Security Audit]
     Financial_Domain --> Report2[Synthesized Advisory Report]
+    Multimodal_Domain --> Report3[Evidence Analysis Report]
 ```
 
 | Agent | Role | "The Personality" | Specialized Tools |
@@ -137,7 +146,8 @@ graph LR
 | **Orchestrator** | The Project Manager | Coordinates specialized sub-agents to build a cohesive financial report. | Multi-agent synthesis |
 | **Historical Review** | The Archivist | Analyzes long-term spending patterns and historical category trends. | `tool_monthly_comparison` |
 | **Math & Calculation**| The Accountant | Performs precision math on transaction totals, averages, and deviations. | `tool_cash_flow_forecast`, `tool_surplus_optimizer` |
-| **Current Analyst** | The Real-Time Monitor | Focuses on the most recent transactions and immediate spending behavior. | `tool_detect_price_hikes`, `tool_tax_deductible_finder`, `tool_liquidity_guard` |
+| **Current Analyst** | The Real-Time Monitor | Focuses on the most recent transactions and immediate spending behavior. | `tool_detect_price_hikes`, `tool_tax_deductible_finder` |
+| **Multimodal Expert**| The Evidence Specialist| Analyzes uploaded documents, images, and CSVs using RAG and Vision LLM. | `tool_semantic_search`, `tool_vision_ocr`, `tool_csv_summarizer` |
 | **Scanner** | The Watchman | Scans the whole system for high-risk threats in milliseconds. | `tool_realtime_fraud_check` |
 | **Profile** | The Private Eye | Looks deep into a specific user's history and risk scores. | `tool_credit_score_impact` |
 
