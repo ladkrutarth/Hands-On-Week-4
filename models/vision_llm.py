@@ -24,9 +24,13 @@ class VisionLLM:
     def _ensure_loaded(self):
         if self.model is None:
             print(f"Lazy loading local Vision MLX model: {self.model_id}...")
-            # Load model, processor and config
-            self.model, self.processor, self.config = load(self.model_id)
+            # Load model and processor
+            self.model, self.processor = load(self.model_id)
             print("✅ Local Vision MLX LLM loaded successfully.")
+            
+            # Patch for LLaVA 1.5 if processor has None patch_size (common bug)
+            if hasattr(self.processor, "patch_size") and self.processor.patch_size is None:
+                self.processor.patch_size = 14
 
     def analyze_image(self, image_path: str, prompt: str, max_tokens: int = 300) -> str:
         """Analyze an image with a text prompt."""
@@ -35,15 +39,15 @@ class VisionLLM:
         formatted_prompt = f"USER: <image>\n{prompt}\nASSISTANT:"
         
         # run generation
-        output = generate(
+        result = generate(
             self.model,
             self.processor,
-            image_path,
             formatted_prompt,
+            image_path,
             max_tokens=max_tokens,
             verbose=False
         )
-        return output.strip()
+        return result.text.strip()
 
     async def analyze_image_async(self, image_path: str, prompt: str, max_tokens: int = 300) -> str:
         """Run vision analysis in a separate thread."""

@@ -30,8 +30,9 @@ The name **Veriscan** represents the fusion of two core security principles:
 The dashboard features a triple-agent specialization for mission-critical tasks:
 1. **🛡️ Security AI Analyst**: Dedicated to real-time fraud detection, system shield monitoring, and anomaly detection protocols.
 2. **💰 Financial AI Advisor**: A high-fidelity agent providing advisory reports on credit health, savings plans, and spending optimization.
-3. **📄 PDF Intelligence**: A local RAG-powered agent that allows users to upload multiple PDF documents and chat with them privately.
-4. **🧬 Spending DNA**: An 8-axis behavioral fingerprinting system for advanced identity verification and trust scoring.
+3. **🧬 Multimodal Intelligence**: A local RAG-powered agent that processes any evidence: PDFs, Images (via OCR & Vision), CSVs, and Transcripts. 
+4. **🧠 Vision-LLM Analysis**: Direct integration with LLaVA for visual reasoning and document extraction.
+5. **🧬 Spending DNA**: An 8-axis behavioral fingerprinting system for identity verification and trust scoring.
 
 
 ## 🏗️ Production System Architecture
@@ -62,8 +63,9 @@ graph TD
 
     subgraph Memory_Compute [Private Compute & Context]
         LLM[Meta-Llama-3-8B MLX]
-        RAG[Multi-PDF RAG Engine]
-        VectorDB[(ChromaDB)]
+        VisionLLM[LLaVA-1.5-7B MLX]
+        RAG[Multimodal RAG Engine]
+        VectorDB[(ChromaDB: Session Isolated)]
     end
 
     subgraph Persistence [Data Tier]
@@ -93,11 +95,11 @@ In a production environment, Veriscan prioritizes **Identity Veracity**:
 
 | Layer | Responsibility | Technology Stack |
 |-------|----------------|------------------|
-| **Client** | High-fidelity visualization & user interaction | Streamlit, Plotly Express (Sunset Scale) |
-| **Gateway** | Request routing, security auditing, & rate limiting | FastAPI, CORSMiddleware, Pydantic v2 |
-| **Logic** | Multi-agent orchestration & behavioral fingerprinting | Python 3.12, Scikit-learn (Random Forest) |
-| **Inference** | Private LLM execution & context-aware synthesis | MLX-LM (GPU Accelerated), Llama-3-8B |
-| **Storage** | Semantic memory & long-term data warehouse | ChromaDB, Snowflake, Pandas (Parquet/CSV) |
+| **Client** | High-fidelity visualization | Streamlit, Plotly Express |
+| **Gateway** | Session management & routing | FastAPI, Pydantic v2 |
+| **Multimodal** | Image/Doc analysis | PyTesseract, PyPDF, LLaVA |
+| **Inference** | Local accelerated LLM | MLX-LM (M-series Compatible) |
+| **RAG** | Session isolated retrieval | ChromaDB (Metadata filtering) |
 
 ---
 
@@ -208,10 +210,11 @@ graph LR
 
 Veriscan features a cutting-edge, local-first AI stack designed for maximum data privacy and performance on Mac hardware.
 
-- **LLM**: `Meta-Llama-3-8B-Instruct` (4-bit quantized).
-- **Inference**: **MLX-LM** (Native GPU acceleration for M1/M2/M3 chips).
-- **Embeddings**: `all-MiniLM-L6-v2` (Local execution via `sentence-transformers`).
-- **Vector Database**: **ChromaDB** (Persistent local storage for RAG context).
+- **Text LLM**: `Meta-Llama-3-8B-Instruct` (MLX/4-bit).
+- **Vision LLM**: `LLaVA-1.5-7B` (MLX/4-bit).
+- **Inference**: **MLX-LM** (Native GPU acceleration for Apple Silicon).
+- **Embeddings**: `all-MiniLM-L6-v2`.
+- **Vector Database**: **ChromaDB** (Session-isolated metadata filtering).
 
 ---
 

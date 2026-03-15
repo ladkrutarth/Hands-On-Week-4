@@ -273,44 +273,40 @@ async def rag_query(req: RAGQueryRequest, request: Request):
 
 
 @app.post("/api/rag/upload", tags=["Knowledge Base"])
-async def rag_upload(files: List[UploadFile] = File(...)):
-    """Upload PDFs, Images, or CSVs for indexing in the local RAG engine."""
-    from models.rag_engine_local import PDF_DATA_PATH, PROJECT_ROOT
-    IMAGE_DATA_PATH = PROJECT_ROOT / "dataset" / "image_data"
-    CSV_DATA_PATH = PROJECT_ROOT / "dataset" / "csv_data"
+async def rag_upload(files: List[UploadFile] = File(...), session_id: Optional[str] = Query(None)):
+    """Upload PDFs, Images, CSVs, or Text for indexing in the local RAG engine."""
+    from models.rag_engine_local import PROJECT_ROOT
     
-    PDF_DATA_PATH.mkdir(parents=True, exist_ok=True)
-    IMAGE_DATA_PATH.mkdir(parents=True, exist_ok=True)
-    CSV_DATA_PATH.mkdir(parents=True, exist_ok=True)
+    # Session-isolated storage
+    SESS_ID = session_id or "global"
+    BASE_UPLOAD_DIR = PROJECT_ROOT / "dataset" / "user_uploads" / SESS_ID
+    BASE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    
+    print(f"DEBUG: Receiving upload for session: {SESS_ID}")
     
     results = []
     for file in files:
         filename = file.filename.lower()
-        target_dir = None
-        
-        if filename.endswith(".pdf"):
-            target_dir = PDF_DATA_PATH
-        elif filename.endswith((".png", ".jpg", ".jpeg", ".bmp")):
-            target_dir = IMAGE_DATA_PATH
-        elif filename.endswith(".csv"):
-            target_dir = CSV_DATA_PATH
-            
-        if not target_dir:
+        # Supported types: PDF, Images, CSV, Text/JSON
+        if not filename.endswith((".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".csv", ".txt", ".json")):
             results.append({"filename": file.filename, "status": "skipped", "error": "Unsupported file type."})
             continue
-        
+            
         try:
-            target_path = target_dir / file.filename
+            target_path = BASE_UPLOAD_DIR / file.filename
             with open(target_path, "wb") as f:
                 content = await file.read()
                 f.write(content)
+            print(f"DEBUG: Saved {file.filename} to {target_path}")
             results.append({"filename": file.filename, "status": "indexed successfully"})
         except Exception as e:
+            print(f"DEBUG: Failed to save {file.filename}: {e}")
             results.append({"filename": file.filename, "status": "failed", "error": str(e)})
 
-    # Trigger re-indexing in the MULTIMODAL engine
+    # Trigger re-indexing in the MULTIMODAL engine (scoped to this session folder)
     if _multimodal_rag:
-        _multimodal_rag.index_data(force=True)
+        # We pass force=False because we now use session folders, no need to wipe global DB
+        _multimodal_rag.index_data(session_id=SESS_ID, force=False)
         
     return {"uploads": results}
 
@@ -325,12 +321,22 @@ async def rag_chat(req: DocChatRequest):
 
     # 1. Retrieve context from the dedicated Multimodal Engine
     scoped_types = req.file_types or ["pdf_doc", "image_doc", "csv_doc"]
+    print(f"DEBUG: Session ID: {req.session_id}")
+    print(f"DEBUG: Querying RAG for: '{req.message}'")
     results = _multimodal_rag.query(
         req.message, 
-        n_results=6, 
-        include_types=scoped_types
+        n_results=15, 
+        include_types=scoped_types,
+        session_id=req.session_id
     )
-    context = "\n\n".join([f"[{r['type'].upper()}]: {r['text']}" for r in results])
+    print(f"DEBUG: Retrieved {len(results)} results.")
+    context_parts = []
+    for i, r in enumerate(results):
+        fname = r.get("metadata", {}).get("filename", "Unknown Source")
+        print(f"DEBUG: Result {i+1} Type: {r['type']} | File: {fname} | Content: {r['text'][:50]}...")
+        context_parts.append(f"[SOURCE: {fname} | TYPE: {r['type'].upper()}]: {r['text']}")
+
+    context = "\n\n".join(context_parts)
     
     # 2. Handle visual context if images are present
     visual_context = ""
@@ -346,15 +352,16 @@ async def rag_chat(req: DocChatRequest):
                     tmp.write(img_data)
                     tmp_path = tmp.name
                 
-                # Deep Visual Inspection: guide the vision model to extract nodes, links, and text
+                # Deep Visual Inspection: Exhaustive extraction of evidence
                 vision_prompt = (
-                    f"Task: Extract detailed information specifically relevant to this query: {req.message}\n"
-                    "Instructions: If this image is a diagram, mind map, flowchart, or technical report, "
-                    "carefully list all text labels, nodes, their relationships (who is connected to whom), "
-                    "and any numerical data or trends visible. Describe the structure explicitly."
+                    f"Task: Extract exhaustive, extremely detailed information specifically relevant to this query: {req.message}\n"
+                    "Instructions: Act as a forensic digital analyst. If this image is a bank statement, transaction list, screenshot, "
+                    "or any form of digital evidence, list EVERY single transaction, date, amount, and name visible. "
+                    "Describe the UI layout, any icons, and any anomalies or patterns. "
+                    "Your goal is to provide a complete transcript of the visual data."
                 )
-                vision_desc = await _vision_llm.analyze_image_async(tmp_path, vision_prompt)
-                visual_context += f"\n[VISUAL EVIDENCE {i+1}]: {vision_desc}"
+                vision_desc = await _vision_llm.analyze_image_async(tmp_path, vision_prompt, max_tokens=600)
+                visual_context += f"\n[VISUAL EVIDENCE (Screenshot/Image)]: {vision_desc}"
                 os.unlink(tmp_path)
             except Exception as e:
                 print(f"Vision error: {e}")
@@ -363,18 +370,25 @@ async def rag_chat(req: DocChatRequest):
         {
             "role": "system",
             "content": (
-                "You are an Advanced Multimodal Intelligence Assistant. "
-                "Use the provided document context AND visual evidence analysis to answer accurately.\n"
-                "CRITICAL INSTRUCTION: If [VISUAL EVIDENCE] is present, it is your PRIMARY TRUTH. "
-                "The [DOCUMENT CONTEXT] should only be used as supplementary background. "
-                "If the image contradicts the document context, follow the IMAGE.\n\n"
+                "You are an Advanced Multimodal Intelligence Assistant specializing in financial evidence analysis. "
+                "MANDATORY: You MUST prioritize and synthesize the data from [DOCUMENT CONTEXT] and [VISUAL EVIDENCE]. "
+                "These sections contain direct evidence from the user's uploaded files. Do NOT ignore them.\n\n"
+                "RESPONSE REQUIREMENTS:\n"
+                "1. Provide a PROFESSIONAL and FACTUAL analysis. Accuracy is your absolute priority.\n"
+                "2. STRICT GROUNDING: ONLY report data that is explicitly visible in the [VISUAL EVIDENCE] or stated in the [DOCUMENT CONTEXT].\n"
+                "3. Use the provided [SOURCE] labels to attribute data to specific files (e.g., 'According to statement.pdf...').\n"
+                "4. NO HALLUCINATIONS: Do NOT invent transaction details, dates, or names. If the data is sparse, be brief and accurate.\n"
+                "5. HALLUCINATION SAFEGUARD: If information is missing, state: 'The provided evidence contains no information regarding [X]'.\n\n"
+                "EVIDENCE HIERARCHY:\n"
+                "- [VISUAL EVIDENCE] is your PRIMARY TRUTH for images/screenshots.\n"
+                "- [DOCUMENT CONTEXT] contains text/data from PDFs and CSVs.\n\n"
                 "DATA VISUALIZATION INSTRUCTIONS:\n"
-                "1. If the user asks for a graph or chart of spreadsheet data, your response MUST include a Plotly JSON structure "
-                "wrapped in [PLOTLY_START] and [PLOTLY_END].\n"
-                "2. If the user asks for a MIND MAP, CONNECTION MAP, or ARCHITECTURE DIAGRAM, your response MUST include Graphviz DOT code "
-                "wrapped in unique markers like so: [MINDMAP_START] digraph G { ... dot code ... } [MINDMAP_END]. "
-                "Focus on mapping relationships found in the provided context.\n"
-                "Do NOT provide raw Python code for plotting unless explicitly asked for it.\n\n"
+                "1. If the user asks for a graph or chart, include a Plotly JSON structure wrapped in [PLOTLY_START] and [PLOTLY_END].\n"
+                "2. CRITICAL: Provide ONLY the raw JSON object between tags. NO markdown backticks (```).\n"
+                "3. PLOTLY TEMPLATE:\n"
+                "   [PLOTLY_START]\n"
+                "   {\"data\": [{\"x\": [\"A\", \"B\"], \"y\": [10, 20], \"type\": \"bar\"}], \"layout\": {\"title\": \"Title\"}}\n"
+                "   [PLOTLY_END]\n\n"
                 f"DOCUMENT CONTEXT:\n{context}\n"
                 f"VISUAL CONTEXT:\n{visual_context}"
             )
@@ -387,7 +401,7 @@ async def rag_chat(req: DocChatRequest):
     
     # 4. Generate reply
     try:
-        reply = await _agent.llm.generate_chat_async(messages, max_tokens=600, temp=0.1)
+        reply = await _agent.llm.generate_chat_async(messages, max_tokens=1000, temp=0.2)
         sources = [
             {"text": r["text"], "metadata": r.get("metadata", {})}
             for r in results

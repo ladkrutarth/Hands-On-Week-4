@@ -18,3 +18,6 @@ dataset/csv_data/fraudTest.csv
 *.log
 *.joblib
 .DS_Store
+.chroma_db_multimodal/
+.chroma_db_test/
+dataset/user_uploads/

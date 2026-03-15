@@ -34,93 +34,109 @@ class MultimodalRAG:
         )
         print(f"✅ Multimodal RAG Engine initialized with {self._collection.count()} documents.")
 
-    def index_data(self, force: bool = False):
-        """Index user-uploaded PDFs, Images, and CSVs."""
-        if self._collection.count() > 0 and not force:
+    def index_data(self, session_id: Optional[str] = None, force: bool = False):
+        """Index user-uploaded data in the session folder (isolated)."""
+        SESS_ID = session_id or "global"
+        SESSION_DIR = PROJECT_ROOT / "dataset" / "user_uploads" / SESS_ID
+        
+        if not SESSION_DIR.exists():
+            print(f"DEBUG: No upload directory found for session {SESS_ID}")
             return
 
-        if force:
-            print("🗑️ Clearing multimodal collection...")
-            self._client.delete_collection(name="veriscan_multimodal")
-            self._collection = self._client.create_collection(
-                name="veriscan_multimodal",
-                embedding_function=self._embedding_function
-            )
-
-        print("⚡ Indexing user evidence...")
+        print(f"⚡ Indexing user evidence for session: {SESS_ID}...")
         
-        # 1. Index PDF Documents
-        if PDF_DATA_PATH.exists():
-            for pdf_file in PDF_DATA_PATH.glob("*.pdf"):
-                # Skip system PDFs if they are in the same folder (architectural cleanup will eventually move them)
-                if pdf_file.name in ["2024_IC3Report.pdf", "The-Scam-Economy_The-True-Cost-of-Online-Scams.pdf"]:
-                    continue
-                    
-                print(f"Processing user PDF: {pdf_file.name}...")
-                try:
-                    text_content = self._extract_text_from_pdf(pdf_file)
+        # 1. Scan the session folder
+        for file_path in SESSION_DIR.glob("*"):
+            ext = file_path.suffix.lower()
+            fname = file_path.name
+            
+            try:
+                # 1.A PDFs
+                if ext == ".pdf":
+                    print(f"Processing PDF: {fname}...")
+                    text_content = self._extract_text_from_pdf(file_path)
                     if not text_content: continue
+                    
+                    # Summary Chunk
+                    self._collection.upsert(
+                        documents=[f"PDF Document Summary: {fname}. This document contains extracted text for analysis."],
+                        metadatas=[{
+                            "type": "pdf_summary", "is_user": True, "filename": fname, 
+                            "session_id": SESS_ID, "timestamp": pd.Timestamp.now().isoformat()
+                        }],
+                        ids=[f"pdf_summary_{file_path.stem}_{SESS_ID}"]
+                    )
                     
                     chunks = self._chunk_text(text_content)
-                    documents, metadatas, ids = [], [], []
+                    docs, metas, ids = [], [], []
                     for i, chunk in enumerate(chunks):
-                        documents.append(chunk)
-                        metadatas.append({
-                            "type": "pdf_doc",
-                            "is_user": True,
-                            "filename": pdf_file.name,
-                            "chunk_index": i
+                        docs.append(chunk)
+                        metas.append({
+                            "type": "pdf_doc", "is_user": True, "filename": fname, 
+                            "chunk_index": i, "session_id": SESS_ID, "timestamp": pd.Timestamp.now().isoformat()
                         })
-                        ids.append(f"pdf_{pdf_file.stem}_{i}")
-                    
-                    if documents:
-                        self._collection.add(documents=documents, metadatas=metadatas, ids=ids)
-                except Exception as e:
-                    print(f"Error processing {pdf_file.name}: {e}")
-            
-        # 2. Index Image Documents
-        if IMAGE_DATA_PATH.exists():
-            for img_file in IMAGE_DATA_PATH.glob("*"):
-                if img_file.suffix.lower() not in [".png", ".jpg", ".jpeg", ".bmp"]:
-                    continue
-                print(f"Processing user Image: {img_file.name} (OCR)...")
-                try:
-                    text_content = self._extract_text_from_image(img_file)
-                    if not text_content: continue
-                    
-                    self._collection.add(
-                        documents=[f"Visual Evidence Content ({img_file.name}): {text_content}"],
-                        metadatas=[{
-                            "type": "image_doc", 
-                            "is_user": True,
-                            "filename": img_file.name,
-                            "source": "ocr_extraction"
-                        }],
-                        ids=[f"img_{img_file.stem}_{hash(text_content) % 10000}"]
-                    )
-                except Exception as e:
-                    print(f"Error processing image {img_file.name}: {e}")
+                        ids.append(f"pdf_{file_path.stem}_{SESS_ID}_{i}")
+                    if docs: self._collection.upsert(documents=docs, metadatas=metas, ids=ids)
 
-        # 3. Index CSV Documents
-        if CSV_DATA_PATH.exists():
-            for csv_file in CSV_DATA_PATH.glob("*.csv"):
-                # Skip system CSVs
-                if csv_file.name in ["cfpb_credit_card.csv", "top10_scam_types_by_losses.csv", "fraud_detection_qa_dataset.json", "financial_advisor_dataset.csv", "spending_dna_dataset.csv"]:
-                    continue
-                    
-                print(f"Processing user CSV: {csv_file.name}...")
-                try:
-                    df = pd.read_csv(csv_file, nrows=50)
-                    summary = f"User Dataset {csv_file.name} contains columns: {', '.join(df.columns)}. Sample data: {df.head(5).to_json()}"
-                    self._collection.add(
+                # 1.B CSVs
+                elif ext == ".csv":
+                    print(f"Processing CSV: {fname}...")
+                    df = pd.read_csv(file_path)
+                    summary = f"CSV Dataset Summary: {fname}. Columns: {', '.join(df.columns)}. Total rows: {len(df)}."
+                    self._collection.upsert(
                         documents=[summary],
-                        metadatas=[{"type": "csv_doc", "is_user": True, "filename": csv_file.name}],
-                        ids=[f"csv_{csv_file.stem}"]
+                        metadatas=[{
+                            "type": "csv_summary", "is_user": True, "filename": fname, 
+                            "session_id": SESS_ID, "timestamp": pd.Timestamp.now().isoformat()
+                        }],
+                        ids=[f"csv_summary_{file_path.stem}_{SESS_ID}"]
                     )
-                except Exception as e:
-                    print(f"Error processing CSV {csv_file.name}: {e}")
+                    
+                    docs, metas, ids = [], [], []
+                    for i in range(0, len(df), 5):
+                        chunk = df.iloc[i:i+5]
+                        content = f"CSV Evidence ({fname}) - Rows {i} to {i+len(chunk)-1}:\n{chunk.to_csv(index=False)}"
+                        docs.append(content)
+                        metas.append({
+                            "type": "csv_doc", "is_user": True, "filename": fname, 
+                            "session_id": SESS_ID, "chunk_start": i, "timestamp": pd.Timestamp.now().isoformat()
+                        })
+                        ids.append(f"csv_{file_path.stem}_{SESS_ID}_{i//5}")
+                    if docs: self._collection.upsert(documents=docs, metadatas=metas, ids=ids)
 
-        print(f"✅ Multimodal Index complete. Total: {self._collection.count()} items.")
+                # 1.C Images (OCR)
+                elif ext in [".png", ".jpg", ".jpeg", ".bmp"]:
+                    print(f"Processing Image: {fname} (OCR)...")
+                    text = self._extract_text_from_image(file_path)
+                    if text:
+                        self._collection.upsert(
+                            documents=[f"Visual Evidence Content ({fname}): {text}"],
+                            metadatas=[{
+                                "type": "image_doc", "is_user": True, "filename": fname, 
+                                "session_id": SESS_ID, "timestamp": pd.Timestamp.now().isoformat()
+                            }],
+                            ids=[f"img_{file_path.stem}_{SESS_ID}"]
+                        )
+
+                # 1.D Plain Text / JSON
+                elif ext in [".txt", ".json"]:
+                    print(f"Processing Text/JSON: {fname}...")
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        text = f.read()
+                    if text:
+                        self._collection.upsert(
+                            documents=[f"Plain Text Evidence ({fname}):\n{text[:5000]}"],
+                            metadatas=[{
+                                "type": "text_doc", "is_user": True, "filename": fname, 
+                                "session_id": SESS_ID, "timestamp": pd.Timestamp.now().isoformat()
+                            }],
+                            ids=[f"text_{file_path.stem}_{SESS_ID}"]
+                        )
+
+            except Exception as e:
+                print(f"Error indexing {fname}: {e}")
+
+        print(f"✅ Multimodal Index for session {SESS_ID} complete. Total DB size: {self._collection.count()}")
 
     def query(self, query_text: str, n_results: int = 5, include_types: Optional[List[str]] = None, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Query user evidence with strict isolation."""
@@ -133,7 +149,8 @@ class MultimodalRAG:
             else:
                 conditions.append({"type": {"$in": include_types}})
         
-        # In the future, we can add session_id filtering here if session_id is indexed per document
+        if session_id:
+            conditions.append({"session_id": session_id})
         
         where_filter = None
         if len(conditions) == 1:
@@ -141,11 +158,24 @@ class MultimodalRAG:
         elif len(conditions) > 1:
             where_filter = {"$and": conditions}
 
-        results = self._collection.query(
-            query_texts=[query_text],
-            n_results=n_results,
-            where=where_filter
-        )
+        try:
+            results = self._collection.query(
+                query_texts=[query_text],
+                n_results=n_results,
+                where=where_filter
+            )
+        except Exception:
+            # If collection is lost (e.g. during concurrent re-index), try to reload it once
+            print("⚠️ Multimodal collection lost; attempting to reload...")
+            self._collection = self._client.get_or_create_collection(
+                name="veriscan_multimodal",
+                embedding_function=self._embedding_function
+            )
+            results = self._collection.query(
+                query_texts=[query_text],
+                n_results=n_results,
+                where=where_filter
+            )
         
         parsed = []
         if results["documents"]:
@@ -155,6 +185,29 @@ class MultimodalRAG:
                     "metadata": results["metadatas"][0][i],
                     "type": results["metadatas"][0][i].get("type", "unknown")
                 })
+        
+        # 4. Mandatory Recency Fallback: If querying session data, always include the most recent 3 items
+        # to ensure that "summarize this" or general recent context is present.
+        if session_id:
+            try:
+                recent = self._collection.get(
+                    where={"session_id": session_id},
+                    limit=3,
+                    include=["documents", "metadatas"]
+                )
+                if recent["documents"]:
+                    # Avoid duplicates by checking IDs
+                    existing_texts = {p["text"] for p in parsed}
+                    for i in range(len(recent["documents"])):
+                        if recent["documents"][i] not in existing_texts:
+                            parsed.insert(0, {
+                                "text": recent["documents"][i],
+                                "metadata": recent["metadatas"][i],
+                                "type": recent["metadatas"][i].get("type", "recent_context")
+                            })
+            except Exception as e:
+                print(f"Recency fallback error: {e}")
+
         return parsed
 
     def _extract_text_from_pdf(self, pdf_path: Path) -> str:

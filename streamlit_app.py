@@ -113,69 +113,79 @@ st.markdown("""
 
     /* Mobbin Minimalist Aesthetic + Premium Palette */
     .stApp {
-        background-color: #F7F7F7;
+        /* Vibrant gradient to make glassmorphism pop */
+        background: linear-gradient(135deg, #E0E7FF 0%, #F8FAFC 50%, #F1F5F9 100%);
+        background-attachment: fixed;
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        color: #111827;
+        color: #000000 !important;
         font-size: 16px;
         line-height: 1.6;
+        font-weight: 600;
     }
 
-    /* Clean Header */
+    /* Clean Header - Glassmorphism */
     .main-header {
-        background: #FFFFFF;
-        border: 1px solid #E5E7EB;
+        background: rgba(255, 255, 255, 0.4) !important;
+        backdrop-filter: blur(20px) !important;
+        -webkit-backdrop-filter: blur(20px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.5) !important;
         padding: 2.5rem 3.5rem;
-        border-radius: 16px;
+        border-radius: 24px;
         margin-bottom: 2.5rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05) !important;
     }
 
     .main-header h1 {
         margin: 0;
         font-size: 2.2rem;
-        font-weight: 700;
-        color: #111827;
+        font-weight: 800;
+        color: #000000 !important;
         letter-spacing: -0.02em;
     }
     
     .main-header p {
-        color: #6B7280;
+        color: #000000 !important;
+        font-weight: 600;
         font-size: 0.98rem;
         margin-top: 0.5rem;
         max-width: 52rem;
     }
 
-    /* Minimalist Bento Cards */
+    /* Minimalist Bento Cards - Glassmorphism */
     .metric-card {
-        background: #FFFFFF;
-        border: 1px solid #E5E7EB;
-        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.3) !important;
+        backdrop-filter: blur(16px) !important;
+        -webkit-backdrop-filter: blur(16px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.4) !important;
+        border-radius: 20px;
         padding: 1.5rem;
         text-align: left;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.02);
-        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03) !important;
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
 
     .metric-card:hover {
-        border-color: #D1D5DB;
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+        background: rgba(255, 255, 255, 0.5) !important;
+        transform: translateY(-8px) scale(1.02);
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08) !important;
+        border-color: rgba(255, 255, 255, 0.6) !important;
     }
 
     .metric-card h3 { 
         margin: 0; 
-        font-size: 0.875rem; 
+        font-size: 0.9rem; 
         text-transform: uppercase; 
         letter-spacing: 0.05em;
-        color: #6B7280; 
-        font-weight: 600; 
+        color: #000000 !important; 
+        font-weight: 800 !important; 
     }
     
     .metric-card .value { 
-        font-size: 1.9rem; 
-        font-weight: 700; 
+        font-size: 2.1rem; 
+        font-weight: 900 !important; 
         margin: 0.5rem 0 0 0; 
-        color: #111827; 
-        letter-spacing: -0.02em;
+        color: #000000 !important; 
+        letter-spacing: -0.03em;
     }
 
     hr, div[data-testid="stDivider"] hr {
@@ -191,8 +201,8 @@ st.markdown("""
 
     /* Clean typography for standard markdown */
     .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {
-        color: #111827 !important;
-        font-weight: 600 !important;
+        color: #000000 !important;
+        font-weight: 800 !important;
         letter-spacing: -0.01em;
         margin-top: 1.5rem !important;
         margin-bottom: 0.75rem !important;
@@ -222,20 +232,20 @@ st.markdown("""
         box-shadow: 0 0 0 2px rgba(64, 142, 198, 0.25) !important;
     }
 
-    /* Monochromatic Buttons */
-    div.stButton > button {
-        background: #111827 !important;
+    /* Monochromatic Buttons - Primary state use Royal Blue instead of Black */
+    div.stButton > button[kind="primary"] {
+        background: #408EC6 !important;
         color: #FFFFFF !important;
-        border: 1px solid #111827 !important;
+        border: 1px solid #408EC6 !important;
         border-radius: 8px !important;
         padding: 0.5rem 1rem !important;
         font-weight: 500 !important;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+        box-shadow: 0 4px 6px -1px rgba(64, 142, 198, 0.2) !important;
         transition: all 0.2s ease !important;
     }
-    div.stButton > button:hover {
-        background: #374151 !important;
-        border-color: #374151 !important;
+    div.stButton > button[kind="primary"]:hover {
+        background: #1E2761 !important;
+        border-color: #1E2761 !important;
         transform: translateY(-1px) !important;
     }
 
@@ -250,20 +260,27 @@ st.markdown("""
         border-color: #D1D5DB !important;
     }
 
-    /* RAG response box */
+    /* RAG response box - Glassmorphism */
     .rag-answer {
-        background: #FFFFFF;
-        border: 1px solid #E5E7EB;
+        background: rgba(255, 255, 255, 0.4) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.5) !important;
         padding: 1.5rem;
-        border-radius: 12px;
+        border-radius: 20px;
         font-size: 1rem;
         line-height: 1.6;
-        color: #374151;
+        color: #000000 !important;
+        font-weight: 700 !important;
         margin-top: 1rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;
     }
 
-    /* Tabs Override */
+    /* Force transparency on Streamlit containers for glass effect */
+    div[data-testid="stVerticalBlock"] > div,
+    div[data-testid="stHorizontalBlock"] > div {
+        background-color: transparent !important;
+    }
     div[data-testid="stTabs"] button {
         color: #6B7280;
         font-weight: 500;
@@ -283,14 +300,14 @@ st.markdown("""
     section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
     section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] li,
     section[data-testid="stSidebar"] label {
-        color: #4B5563 !important;
-        font-weight: 500 !important;
+        color: #000000 !important;
+        font-weight: 700 !important;
         font-size: 0.92rem !important;
     }
     section[data-testid="stSidebar"] h2, 
     section[data-testid="stSidebar"] h3 {
-        color: #111827 !important;
-        font-weight: 700 !important;
+        color: #000000 !important;
+        font-weight: 900 !important;
         letter-spacing: -0.01em;
         font-size: 1.2rem !important;
     }
@@ -328,8 +345,38 @@ st.markdown("""
     table, th, td, 
     div[data-testid="stTable"] td, 
     div[data-testid="stTable"] th {
-        color: #111827 !important;
-        font-weight: 500 !important;
+        color: #000000 !important;
+        font-weight: 700 !important;
+    }
+
+    /* Premium Navigation Selection (Pill Style) */
+    .nav-button {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        padding: 0.6rem 1rem;
+        margin-bottom: 0.25rem;
+        border-radius: 10px;
+        background: transparent;
+        border: 1px solid transparent;
+        color: #000000 !important;
+        font-size: 0.95rem !important;
+        font-weight: 800 !important;
+        text-align: left;
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        text-decoration: none !important;
+    }
+
+    .nav-button:hover {
+        background: #F3F4F6;
+        color: #000000 !important;
+    }
+
+    .nav-button.active {
+        background: #408EC6 !important;
+        color: #FFFFFF !important;
+        box-shadow: 0 4px 6px -1px rgba(64, 142, 198, 0.4);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -478,18 +525,35 @@ def render_sidebar():
 
         st.divider()
         st.markdown("### Navigation")
-        nav_options = ["🛡️ Security AI", "💰 Financial AI", "🧬 Multimodal Intelligence", "📊 Market Dash", "🔍 CFPB Market Intel", "🧬 Spending DNA"]
+        nav_options = {
+            "🛡️ Security AI": "🛡️ Security AI",
+            "💰 Financial AI": "💰 Financial AI",
+            "🧬 Multimodal": "🧬 Multimodal Intelligence",
+            "📊 Market Dash": "📊 Market Dash",
+            "🔍 CFPB Intel": "🔍 CFPB Market Intel",
+            "🧬 Spending DNA": "🧬 Spending DNA"
+        }
+        
         current_nav = st.session_state.get("nav", "🛡️ Security AI")
-        if current_nav not in nav_options:
-            current_nav = "🛡️ Security AI"
-            st.session_state["nav"] = current_nav
+        
+        # Helper to set nav and rerun
+        def set_nav(selection):
+            st.session_state["nav"] = selection
+            st.rerun()
 
-        st.session_state["nav"] = st.radio(
-            "Go to",
-            nav_options,
-            index=nav_options.index(current_nav),
-            label_visibility="collapsed",
-        )
+        for label, selection in nav_options.items():
+            is_active = (current_nav == selection)
+            active_class = "active" if is_active else ""
+            
+            # Using custom CSS for button-like appearance that tracks state
+            if st.button(
+                label, 
+                key=f"nav_{selection}", 
+                width='stretch',
+                type="primary" if is_active else "secondary"
+            ):
+                st.session_state["nav"] = selection
+                st.rerun()
 
         st.divider()
         st.markdown("### System")
@@ -706,23 +770,23 @@ def render_cfpb_tab(df):
         # Quick Presets
         st.markdown("<p style='font-size:0.8rem; font-weight:bold; margin-bottom:5px; color:#64748b;'>Quick Insights:</p>", unsafe_allow_html=True)
         p1, p2 = st.columns(2)
-        p1.button("📑 Billing Disputes", on_click=set_cfpb_preset, args=("What are the standard procedures and timelines for resolving billing disputes according to consumer complaints?",), use_container_width=True, key="p1")
-        p2.button("💳 Lost/Stolen Issues", on_click=set_cfpb_preset, args=("Summarize the most common issues consumers face when reporting a lost or stolen credit card.",), use_container_width=True, key="p2")
+        p1.button("📑 Billing Disputes", on_click=set_cfpb_preset, args=("What are the standard procedures and timelines for resolving billing disputes according to consumer complaints?",), width='stretch', key="p1")
+        p2.button("💳 Lost/Stolen Issues", on_click=set_cfpb_preset, args=("Summarize the most common issues consumers face when reporting a lost or stolen credit card.",), width='stretch', key="p2")
         
         p3, p4 = st.columns(2)
-        p3.button("🆔 Identity Theft Scenarios", on_click=set_cfpb_preset, args=("Search for 'identity theft'. What are the most frequent scenarios where consumers realize their identity was stolen?",), use_container_width=True, key="p3")
-        p4.button("🚫 Unauthorized Discovery", on_click=set_cfpb_preset, args=("Find context on 'unauthorized transactions'. What evidence do consumers typically provide to prove they did not make a charge?",), use_container_width=True, key="p4")
+        p3.button("🆔 Identity Theft Scenarios", on_click=set_cfpb_preset, args=("Search for 'identity theft'. What are the most frequent scenarios where consumers realize their identity was stolen?",), width='stretch', key="p3")
+        p4.button("🚫 Unauthorized Discovery", on_click=set_cfpb_preset, args=("Find context on 'unauthorized transactions'. What evidence do consumers typically provide to prove they did not make a charge?",), width='stretch', key="p4")
         
-        st.button("🎧 Service Dissatisfaction", on_click=set_cfpb_preset, args=("What are the primary reasons consumers express dissatisfaction with customer service in the credit card industry?",), use_container_width=True, key="p5")
+        st.button("🎧 Service Dissatisfaction", on_click=set_cfpb_preset, args=("What are the primary reasons consumers express dissatisfaction with customer service in the credit card industry?",), width='stretch', key="p5")
 
         st.markdown("<p style='font-size:0.8rem; font-weight:bold; margin-top:15px; margin-bottom:5px; color:#64748b;'>Expert Intelligence Presets:</p>", unsafe_allow_html=True)
         e1, e2 = st.columns(2)
-        e1.button("📊 IC3 Fraud Trends", on_click=set_cfpb_preset, args=("What are the key findings and fraud trends from the 2024 IC3 Report?",), use_container_width=True, key="e1")
-        e2.button("💸 Scam Economy Costs", on_click=set_cfpb_preset, args=("Analyze the global financial impact and 'true cost' of the scam economy based on recent reports.",), use_container_width=True, key="e2")
+        e1.button("📊 IC3 Fraud Trends", on_click=set_cfpb_preset, args=("What are the key findings and fraud trends from the 2024 IC3 Report?",), width='stretch', key="e1")
+        e2.button("💸 Scam Economy Costs", on_click=set_cfpb_preset, args=("Analyze the global financial impact and 'true cost' of the scam economy based on recent reports.",), width='stretch', key="e2")
         
         e3, e4 = st.columns(2)
-        e3.button("🎯 High-Loss Scams", on_click=set_cfpb_preset, args=("Identify which scam types resulted in the highest victim losses in 2024 according to the data.",), use_container_width=True, key="e3")
-        e4.button("🏢 BEC Scam Targets", on_click=set_cfpb_preset, args=("Search for 'Business Email Compromise'. How do these scams typically target organizations?",), use_container_width=True, key="e4")
+        e3.button("🎯 High-Loss Scams", on_click=set_cfpb_preset, args=("Identify which scam types resulted in the highest victim losses in 2024 according to the data.",), width='stretch', key="e3")
+        e4.button("🏢 BEC Scam Targets", on_click=set_cfpb_preset, args=("Search for 'Business Email Compromise'. How do these scams typically target organizations?",), width='stretch', key="e4")
 
         st.divider()
         query = st.text_input("Search context:", placeholder="e.g. Find high-value travel anomalies...", key="cfpb_rag_q")
@@ -1434,6 +1498,12 @@ def render_dna_tab():
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 def render_multimodal_tab():
+    # Ensure session_id and chat history exist BEFORE any interaction (Upload or Chat)
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())[:12]
+    if "pdf_chat_history" not in st.session_state:
+        st.session_state.pdf_chat_history = []
+        
     st.markdown("### 🧬 Multimodal Intelligence & Evidence Analysis")
     st.markdown("Upload PDFs, Images, and CSVs to analyze evidence using local Vision-AI and RAG.")
     
@@ -1455,7 +1525,9 @@ def render_multimodal_tab():
                             elif f.name.lower().endswith(".csv"): mime = "text/csv"
                             files_payload.append(("files", (f.name, f.getvalue(), mime)))
                             
-                        resp = requests.post(f"{API_BASE_URL}/api/rag/upload", files=files_payload, timeout=120)
+                        # Pass session_id in query params so backend can isolate these files
+                        upload_url = f"{API_BASE_URL}/api/rag/upload?session_id={st.session_state.get('session_id')}"
+                        resp = requests.post(upload_url, files=files_payload, timeout=120)
                         
                         if resp.status_code == 200:
                             data = resp.json()
@@ -1527,10 +1599,6 @@ def render_multimodal_tab():
         st.caption("All data is processed locally. Images are analyzed via Vision-LLM and OCR. CSVs are indexed for structural search.")
 
     with col_chat:
-        # Ensure session_id exists for context isolation
-        if "session_id" not in st.session_state:
-            st.session_state.session_id = str(uuid.uuid4())[:12]
-            
         chat_header_col1, chat_header_col2 = st.columns([4, 1])
         with chat_header_col1:
             st.markdown("#### 💬 Chat with Documents")
