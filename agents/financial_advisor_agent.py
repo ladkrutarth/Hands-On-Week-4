@@ -1046,6 +1046,11 @@ class FinancialAdvisorAgent:
     def get_all_users(self) -> list[str]:
         return sorted(self.df["user_id"].unique().tolist())
 
+    def get_user_names_map(self) -> dict[str, str]:
+        """Return a mapping of user_id -> Full Name."""
+        mapping = self.df.drop_duplicates("user_id")[["user_id", "first", "last"]]
+        return {row["user_id"]: f"{row['first']} {row['last']}" for _, row in mapping.iterrows()}
+
     def get_chart_data(self, user_id: str) -> dict[str, float]:
         """Return category → amount dict for bar chart rendering."""
         user_df = self.df[self.df["user_id"] == user_id]

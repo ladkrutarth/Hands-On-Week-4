@@ -1,0 +1,28 @@
+Crime_Type,Complaint_Count,Loss_USD
+Phishing/Spoofing,193407,70013036
+Extortion,86415,143185736
+Personal Data Breach,64882,1453296303
+Non-Payment/Non-Delivery,49572,785436888
+Investment,47919,6570639864
+Tech Support,36002,1464755976
+Business Email Compromise,21442,2770151146
+Identity Theft,21403,174354745
+Employment,20044,264223271
+Confidence/Romance,17910,672009052
+Government Impersonation,17367,405624084
+Credit Card/Check Fraud,12876,199889841
+Other,12318,280278325
+Harassment/Stalking,11672,10611223
+Real Estate,9359,173586820
+Advanced Fee,7097,102074512
+Crimes Against Children,4472,519424
+Lottery/Sweepstakes/Inheritance,3690,102212250
+Data Breach,3204,364855818
+Ransomware,3156,12473156
+Overpayment,2705,21452521
+IPR/Copyright and Counterfeit,1583,8715512
+Threats of Violence,1360,1842186
+SIM Swap,982,25983946
+Botnet,587,8860202
+Malware,441,1365945
+Cryptocurrency (Descriptor),149686,9322335911

@@ -35,6 +35,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 FEATURES_PATH = PROJECT_ROOT / "dataset" / "csv_data" / "financial_advisor_dataset.csv"
 CFPB_PATH = PROJECT_ROOT / "dataset" / "csv_data" / "cfpb_credit_card.csv"
+IC3_DIR = PROJECT_ROOT / "dataset" / "ic3_2024_csvs"
 
 # ---------------------------------------------------------------------------
 # Premium Palette & Chart Helpers
@@ -409,6 +410,16 @@ def load_cfpb_data():
         return pd.read_csv(CFPB_PATH, nrows=50000)
     return pd.DataFrame()
 
+@st.cache_data(ttl=3600)
+def load_ic3_data():
+    """Loads all IC3 2024 datasets into a dictionary of DataFrames."""
+    datasets = {}
+    if IC3_DIR.exists():
+        for csv_file in IC3_DIR.glob("*.csv"):
+            key = csv_file.stem
+            datasets[key] = pd.read_csv(csv_file)
+    return datasets
+
 def api_available() -> bool:
     """Check if the FastAPI backend is running."""
     try:
@@ -584,109 +595,116 @@ def render_dashboard_tab(df):
         st.warning("Fraud dataset not found.")
         return
 
-    st.markdown("### 📊 Market Fraud Overview")
+    ic3_data = load_ic3_data()
     
-    st.subheader("📉 Top 10 Online Scam & Crime Types by Losses (Global)")
-    st.markdown("Global reported losses by category. *Note: Actual losses are likely higher due to underreporting.*")
+    # Create internal sub-tabs
+    tab_nat, tab_trans = st.tabs(["🌐 National Trends", "💳 Transaction Intelligence"])
     
-    from models.agent_tools_data import GLOBAL_SCAM_STATS
-    scam_data = pd.DataFrame({
-        "Scam Type": list(GLOBAL_SCAM_STATS.keys()),
-        "Losses ($B)": list(GLOBAL_SCAM_STATS.values())
-    }).sort_values(by="Losses ($B)", ascending=True)
+    with tab_nat:
+        st.markdown("### 🌐 National Reported Trends (IC3 2024)")
+        if not ic3_data:
+            st.warning("IC3 2024 datasets not found.")
+        else:
+            # 1. Global Scam Stats
+            st.subheader("📉 Top 10 Online Scam & Crime Types by Losses (Global)")
+            from models.agent_tools_data import GLOBAL_SCAM_STATS
+            scam_data = pd.DataFrame({
+                "Scam Type": list(GLOBAL_SCAM_STATS.keys()),
+                "Losses ($B)": list(GLOBAL_SCAM_STATS.values())
+            }).sort_values(by="Losses ($B)", ascending=True)
 
-    fig_scam = px.bar(
-        scam_data, x="Losses ($B)", y="Scam Type", orientation='h',
-        color="Losses ($B)", color_continuous_scale='Sunset',
-        template='plotly_white', text="Losses ($B)"
-    )
-    fig_scam.update_traces(texttemplate='$%{text}B', textposition='outside')
-    fig_scam.update_layout(showlegend=False, coloraxis_showscale=False, yaxis_title=None, height=450)
-    
-    st.plotly_chart(apply_accessible_theme(fig_scam), use_container_width=True)
+            fig_scam = px.bar(
+                scam_data, x="Losses ($B)", y="Scam Type", orientation='h',
+                color="Losses ($B)", color_continuous_scale='Sunset',
+                template='plotly_white', text="Losses ($B)"
+            )
+            fig_scam.update_traces(texttemplate='$%{text}B', textposition='outside')
+            fig_scam.update_layout(showlegend=False, coloraxis_showscale=False, yaxis_title=None, height=450)
+            st.plotly_chart(apply_accessible_theme(fig_scam), use_container_width=True)
 
-    st.divider()
+            # 2. Age Group Pie
+            st.divider()
+            st.subheader("👥 Financial Loss Distribution by Age Group")
+            if "03_age_group_breakdowns" in ic3_data:
+                losses_row = ic3_data["03_age_group_breakdowns"][ic3_data["03_age_group_breakdowns"]["Metric"] == "Losses_USD"]
+                if not losses_row.empty:
+                    age_cols = ["Under_20", "Age_20_29", "Age_30_39", "Age_40_49", "Age_50_59", "Age_60_Plus"]
+                    age_vals = losses_row[age_cols].iloc[0].values
+                    fig_age = px.pie(
+                        values=age_vals, names=age_cols,
+                        title="Relative Financial Risk by Demographic",
+                        color_discrete_sequence=px.colors.qualitative.Prism
+                    )
+                    st.plotly_chart(fig_age, use_container_width=True)
 
-    c1, c2, c3 = st.columns(3)
-    with c1: st.markdown(f"<div class='metric-card'><h3>Processed</h3><div class='value'>{len(df):,}</div></div>", unsafe_allow_html=True)
-    with c2: st.markdown(f"<div class='metric-card'><h3>Fraud Cases</h3><div class='value' style='color:#dc2626'>{df['is_fraud_flag'].sum():,}</div></div>", unsafe_allow_html=True)
-    with c3: st.markdown(f"<div class='metric-card'><h3>Fraud Risk</h3><div class='value'>{(df['is_fraud_flag'].mean()*100):.1f}%</div></div>", unsafe_allow_html=True)
+            # 3. Top 14 States
+            st.divider()
+            st.subheader("🏛️ Top 14 States by Financial Loss")
+            if "02_state_statistics" in ic3_data:
+                state_df = ic3_data["02_state_statistics"].sort_values("Losses_USD", ascending=False).head(14)
+                fig_state = px.bar(
+                    state_df, x="State", y="Losses_USD",
+                    title="Geographic Financial Impact (Top 14 States)",
+                    labels={"Losses_USD": "Total Loss ($)"},
+                    color="State", color_discrete_sequence=px.colors.qualitative.Prism
+                )
+                fig_state.update_layout(showlegend=False)
+                st.plotly_chart(apply_accessible_theme(fig_state), use_container_width=True)
 
-    st.divider()
-    # ── Full Width Row 1: Fraud Heatmap ──
-    st.subheader("Fraud Heatmap by Category")
-    cat_data = df.groupby('category')['is_fraud_flag'].sum().sort_values(ascending=False).reset_index()
-    
-    # Add visual icons to category parts
-    cat_icons = {
-        "Groceries": "🍎 Groceries",
-        "Dining & Restaurants": "🍔 Dining & Restaurants",
-        "Online Shopping": "🛒 Online Shopping",
-        "Healthcare": "💊 Healthcare",
-        "Travel & Leisure": "✈️ Travel & Leisure",
-        "Entertainment": "🎬 Entertainment",
-        "Subscriptions": "📅 Subscriptions",
-        "Housing (Rent/Mortgage)": "🏠 Housing",
-        "Utilities & Bills": "🧾 Utilities & Bills",
-        "Misc / Cash": "📦 Misc / Cash",
-        "Transportation & Gas": "⛽ Transportation & Gas",
-        "Clothing & Fashion": "🛍️ Clothing & Fashion",
-        "Electronics": "💻 Electronics",
-        "Education": "📚 Education",
-        "Insurance": "🛡️ Insurance"
-    }
-    # Fallback for synthetic/fraud categories just in case
-    legacy_icons = {
-        "shopping_net": "🛒 Shopping (Net)",
-        "shopping_pos": "🛍️ Shopping (POS)",
-        "grocery_net": "🍎 Grocery (Net)",
-        "grocery_pos": "🏪 Grocery (POS)",
-        "gas_transport": "⛽ Gas & Transport",
-        "food_dining": "🍔 Food & Dining"
-    }
-    cat_icons.update(legacy_icons)
-    
-    cat_data['category'] = cat_data['category'].apply(lambda x: cat_icons.get(x, f"❓ {str(x).title()}"))
-    
-    fig_cat = px.bar(cat_data, x='is_fraud_flag', y='category', orientation='h', color='is_fraud_flag', 
-                     color_continuous_scale='Sunset', template='plotly_white')
-    
-    # Increase chart size
-    fig_cat.update_layout(height=600)
+    with tab_trans:
+        st.markdown("### 💳 Transaction Intelligence & Analytics")
+        
+        # Credit/Debit Selector (Requested)
+        col_ctrl, _ = st.columns([1, 2])
+        with col_ctrl:
+            method_filter = st.selectbox("Transaction Method", ["All Transactions", "Credit Card", "Debit Card"], index=0)
+            st.caption(f"Currently analyzing: **{method_filter}**")
 
-    st.plotly_chart(apply_accessible_theme(fig_cat), use_container_width=True)
-    
-    st.divider()
-    # ── Full Width Row 2: Bubble Map ──
-    st.subheader("📍 Interactive Fraud Bubble Map (US)")
-    state_data = df.groupby("state")["is_fraud_flag"].sum().reset_index()
-    state_data = state_data[state_data["state"].notna()]
-    if not state_data.empty:
-        min_cases = int(state_data["is_fraud_flag"].min())
-        max_cases = int(state_data["is_fraud_flag"].max())
-        cutoff = st.slider(
-            "Show states with at least this many fraud cases:",
-            min_value=min_cases,
-            max_value=max_cases,
-            value=min(max_cases // 10, max_cases),
-            key="fraud_map_cutoff",
-        )
-        filtered = state_data[state_data["is_fraud_flag"] >= cutoff]
-        fig_map = px.scatter_geo(
-            filtered,
-            locations="state",
-            locationmode="USA-states",
-            size="is_fraud_flag",
-            color="is_fraud_flag",
-            scope="usa",
-            hover_name="state",
-            labels={"is_fraud_flag": "Fraud cases"},
-            color_continuous_scale=SEQ_BLUE,
-        )
-        fig_map.update_traces(marker_line_color="white", marker_line_width=0.6, opacity=0.9)
-        st.plotly_chart(apply_accessible_theme(fig_map, title="Fraud cases by state (bubble map)"), use_container_width=True)
-    else:
-        st.info("No state-level data available for the map.")
+        st.divider()
+        c1, c2, c3 = st.columns(3)
+        with c1: st.markdown(f"<div class='metric-card'><h3>Processed</h3><div class='value'>{len(df):,}</div></div>", unsafe_allow_html=True)
+        with c2: st.markdown(f"<div class='metric-card'><h3>Fraud Cases</h3><div class='value' style='color:#dc2626'>{df['is_fraud_flag'].sum():,}</div></div>", unsafe_allow_html=True)
+        with c3: st.markdown(f"<div class='metric-card'><h3>Fraud Risk</h3><div class='value'>{(df['is_fraud_flag'].mean()*100):.1f}%</div></div>", unsafe_allow_html=True)
+
+        st.divider()
+        st.subheader("Fraud Heatmap by Category")
+        cat_data = df.groupby('category')['is_fraud_flag'].sum().sort_values(ascending=False).reset_index()
+        
+        cat_icons = {
+            "Groceries": "🍎 Groceries", "Dining & Restaurants": "🍔 Dining & Restaurants",
+            "Online Shopping": "🛒 Online Shopping", "Healthcare": "💊 Healthcare",
+            "Travel & Leisure": "✈️ Travel & Leisure", "Entertainment": "🎬 Entertainment",
+            "Subscriptions": "📅 Subscriptions", "Housing (Rent/Mortgage)": "🏠 Housing",
+            "Utilities & Bills": "🧾 Utilities & Bills", "Misc / Cash": "📦 Misc / Cash",
+            "Transportation & Gas": "⛽ Transportation & Gas", "Clothing & Fashion": "🛍️ Clothing & Fashion",
+            "Electronics": "💻 Electronics", "Education": "📚 Education", "Insurance": "🛡️ Insurance"
+        }
+        cat_data['category'] = cat_data['category'].apply(lambda x: cat_icons.get(x, f"❓ {str(x).title()}"))
+        
+        fig_cat = px.bar(cat_data, x='is_fraud_flag', y='category', orientation='h', color='is_fraud_flag', 
+                         color_continuous_scale='Sunset', template='plotly_white')
+        fig_cat.update_layout(height=600)
+        st.plotly_chart(apply_accessible_theme(fig_cat), use_container_width=True)
+        
+        st.divider()
+        st.subheader("📍 Interactive Fraud Bubble Map (US)")
+        state_data = df.groupby("state")["is_fraud_flag"].sum().reset_index()
+        state_data = state_data[state_data["state"].notna()]
+        if not state_data.empty:
+            min_cases = int(state_data["is_fraud_flag"].min())
+            max_cases = int(state_data["is_fraud_flag"].max())
+            cutoff = st.slider("Min Fraud Cases:", min_cases, max_cases, min(max_cases // 10, max_cases), key="fraud_map_cutoff")
+            filtered = state_data[state_data["is_fraud_flag"] >= cutoff]
+            fig_map = px.scatter_geo(
+                filtered, locations="state", locationmode="USA-states",
+                size="is_fraud_flag", color="is_fraud_flag", scope="usa",
+                hover_name="state", labels={"is_fraud_flag": "Cases"},
+                color_continuous_scale=SEQ_BLUE
+            )
+            fig_map.update_traces(marker_line_color="white", marker_line_width=0.6, opacity=0.9)
+            st.plotly_chart(apply_accessible_theme(fig_map, title="Fraud cases by state (bubble map)"), use_container_width=True)
+        else:
+            st.info("No state-level data available for the map.")
 
 
 
@@ -849,13 +867,21 @@ def render_omni_tab():
     try:
         adv = FinancialAdvisorAgent()
         all_users = adv.get_all_users()
+        names_map = adv.get_user_names_map()
     except Exception:
         all_users = ["USER_0001"]
+        names_map = {"USER_0001": "Sample User"}
 
     colX, colY = st.columns([1, 2])
     with colX:
         st.markdown("<p style='color: black; font-weight: bold; font-size: 14px; margin-bottom: 5px; margin-left: 2px;'>👤 Target Context:</p>", unsafe_allow_html=True)
-        selected_user = st.selectbox("", all_users[:50], key="omni_user", label_visibility="collapsed")
+        selected_user = st.selectbox(
+            "", 
+            all_users, 
+            key="omni_user", 
+            label_visibility="collapsed",
+            format_func=lambda x: names_map.get(x, x)
+        )
     
     with colY:
         st.markdown("<p style='color: black; font-weight: bold; font-size: 14px; margin-bottom: 5px; margin-left: 2px;'>🧠 Select AI Model:</p>", unsafe_allow_html=True)
@@ -1022,12 +1048,12 @@ def render_omni_tab():
                             margin=dict(l=20, r=20, t=30, b=20),
                             paper_bgcolor="white",
                             plot_bgcolor="white",
-                            font=dict(family="Outfit, sans-serif", size=13, color="#000000"),
+                            font={"family": "Outfit, sans-serif", "size": 13, "color": "#000000"},
                             coloraxis_showscale=False
                         )
-                        fig.update_xaxes(title_font=dict(color="#000000"), tickfont=dict(color="#000000"))
-                        fig.update_yaxes(title_font=dict(color="#000000"), tickfont=dict(color="#000000"))
-                        fig.update_traces(textposition='outside', cliponaxis=False, textfont=dict(color="#000000"))
+                        fig.update_xaxes(title_font={"color": "#000000"}, tickfont={"color": "#000000"})
+                        fig.update_yaxes(title_font={"color": "#000000"}, tickfont={"color": "#000000"})
+                        fig.update_traces(textposition='outside', cliponaxis=False, textfont={"color": "#000000"})
                         st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.warning("No spending data found for this user.")
@@ -1119,8 +1145,19 @@ def render_security_ai_page():
     _top_status_row(model_label="Security Analyst")
 
     all_users = _get_all_users_financial()
+    try:
+        adv = FinancialAdvisorAgent()
+        names_map = adv.get_user_names_map()
+    except Exception:
+        names_map = {}
+
     st.markdown("#### Context")
-    selected_user = st.selectbox("Target user", all_users[:50], key="sec_user")
+    selected_user = st.selectbox(
+        "Target user", 
+        all_users, 
+        key="sec_user",
+        format_func=lambda x: names_map.get(x, x)
+    )
 
     # Live monitor
     try:
@@ -1229,9 +1266,16 @@ def render_financial_ai_page():
         
         st.divider()
         st.markdown("#### ⚙️ Settings")
-        new_user = st.selectbox("Target user", all_users[:50], 
-                                index=all_users.index(active_sess["user_id"]) if active_sess["user_id"] in all_users[:50] else 0,
-                                key="fin_user_select")
+        try:
+            adv = FinancialAdvisorAgent()
+            names_map = adv.get_user_names_map()
+        except Exception:
+            names_map = {}
+
+        new_user = st.selectbox("Target user", all_users, 
+                                index=all_users.index(active_sess["user_id"]) if active_sess["user_id"] in all_users else 0,
+                                key="fin_user_select",
+                                format_func=lambda x: names_map.get(x, x))
         if new_user != active_sess["user_id"]:
             # Context clearing logic
             active_sess["user_id"] = new_user
@@ -1341,15 +1385,23 @@ def render_dna_tab():
 
     try:
         from agents.spending_dna_agent import SpendingDNAAgent
+        from agents.financial_advisor_agent import FinancialAdvisorAgent
         dna_agent = SpendingDNAAgent()
+        adv = FinancialAdvisorAgent()
         all_users = dna_agent.get_all_users()
+        names_map = adv.get_user_names_map()
     except Exception as e:
         st.error(f"Could not load DNA agent: {e}")
         return
 
     col_sel, col_trust = st.columns([2, 1])
     with col_sel:
-        selected = st.selectbox("Select User for DNA Profile:", all_users[:30], key="dna_user")
+        selected = st.selectbox(
+            "Select User for DNA Profile:", 
+            all_users, 
+            key="dna_user",
+            format_func=lambda x: names_map.get(x, x)
+        )
 
     dna = dna_agent.compute_dna(selected)
     if "error" in dna:
@@ -1378,15 +1430,15 @@ def render_dna_tab():
             theta=labels + [labels[0]],
             fill="toself",
             fillcolor="rgba(79, 70, 229, 0.3)",
-            line=dict(color="#4338ca", width=4),
+            line={"color": "#4338ca", "width": 4},
             name=selected,
         ))
         fig.update_layout(
-            polar=dict(
-                radialaxis=dict(visible=True, range=[0, 1], tickfont=dict(size=12, color="#0f172a", weight="bold")),
-                angularaxis=dict(tickfont=dict(size=13, color="#0f172a", weight="bold")),
-                bgcolor="rgba(248,250,252,1)",
-            ),
+            polar={
+                "radialaxis": {"visible": True, "range": [0, 1], "tickfont": {"size": 12, "color": "#0f172a", "weight": "bold"}},
+                "angularaxis": {"tickfont": {"size": 13, "color": "#0f172a", "weight": "bold"}},
+                "bgcolor": "rgba(248,250,252,1)",
+            },
             showlegend=False,
             title=dict(text=f"🧬 {selected} — Spending DNA", font=dict(size=18, color="#0f172a", weight="bold")),
             paper_bgcolor="rgba(0,0,0,0)",
@@ -1429,16 +1481,16 @@ def render_dna_tab():
             fig_yoy.add_trace(go.Scatterpolar(
                 r=dna_2024["radar_values"] + [dna_2024["radar_values"][0]],
                 theta=labels + [labels[0]],
-                fill="toself", name="2024 DNA", line=dict(color="#94a3b8")
+                fill="toself", name="2024 DNA", line={"color": "#94a3b8"}
             ))
             fig_yoy.add_trace(go.Scatterpolar(
                 r=dna_2025["radar_values"] + [dna_2025["radar_values"][0]],
                 theta=labels + [labels[0]],
-                fill="toself", name="2025 DNA", line=dict(color="#4f46e5", width=3)
+                fill="toself", name="2025 DNA", line={"color": "#4f46e5", "width": 3}
             ))
             fig_yoy.update_layout(
-                polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
-                height=400, margin=dict(l=40, r=40, t=30, b=30), showlegend=True
+                polar={"radialaxis": {"visible": True, "range": [0, 1]}},
+                height=400, margin={"l": 40, "r": 40, "t": 30, "b": 30}, showlegend=True
             )
             st.plotly_chart(fig_yoy, use_container_width=True)
         else:
@@ -1453,13 +1505,11 @@ def render_dna_tab():
                 "Trust Score": evolution["trust_scores"],
                 "Deviation": evolution["deviations"]
             })
-            
-            import plotly.express as px
             fig_evol = px.line(evol_df, x="Month", y=["Trust Score", "Deviation"],
                               color_discrete_sequence=["#16a34a", "#dc2626"],
                               markers=True)
-            fig_evol.update_layout(height=400, margin=dict(l=10, r=10, t=30, b=10),
-                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            fig_evol.update_layout(height=400, margin={"l": 10, "r": 10, "t": 30, "b": 10},
+                                 legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1})
             st.plotly_chart(fig_evol, use_container_width=True)
         else:
             st.warning("No monthly trend data available.")
@@ -1478,17 +1528,17 @@ def render_dna_tab():
         fig2.add_trace(go.Scatterpolar(
             r=comparison["baseline_radar"] + [comparison["baseline_radar"][0]],
             theta=comparison["radar_labels"] + [comparison["radar_labels"][0]],
-            fill="toself", fillcolor="rgba(99,102,241,0.2)", line=dict(color="#6366f1", width=2, dash="dash"), name="DNA Baseline",
+            fill="toself", fillcolor="rgba(99,102,241,0.2)", line={"color": "#6366f1", "width": 2, "dash": "dash"}, name="DNA Baseline",
         ))
         fig2.add_trace(go.Scatterpolar(
             r=comparison["session_radar"] + [comparison["session_radar"][0]],
             theta=comparison["radar_labels"] + [comparison["radar_labels"][0]],
-            fill="toself", fillcolor="rgba(220,38,38,0.15)", line=dict(color="#dc2626", width=3), name="Current Session",
+            fill="toself", fillcolor="rgba(220,38,38,0.15)", line={"color": "#dc2626", "width": 3}, name="Current Session",
         ))
         fig2.update_layout(
-            polar=dict(radialaxis=dict(visible=True, range=[0, 1]), bgcolor="rgba(248,250,252,0.8)"),
+            polar={"radialaxis": {"visible": True, "range": [0, 1]}, "bgcolor": "rgba(248,250,252,0.8)"},
             showlegend=True, title="Session vs. DNA Baseline",
-            paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=60, r=60, t=50, b=30),
+            paper_bgcolor="rgba(0,0,0,0)", margin={"l": 60, "r": 60, "t": 50, "b": 30},
         )
         st.plotly_chart(fig2, use_container_width=True)
 
@@ -1579,7 +1629,7 @@ def render_multimodal_tab():
                             import plotly.express as px
                             fig = px.line(df, x=date_col, y=num_cols[0], title=f"{num_cols[0]} over Time",
                                           template="plotly_white", markers=True)
-                            fig.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
+                            fig.update_layout(height=350, margin={"l": 10, "r": 10, "t": 40, "b": 10})
                             st.plotly_chart(fig, use_container_width=True)
                         elif len(num_cols) >= 1:
                             import plotly.express as px
@@ -1587,7 +1637,7 @@ def render_multimodal_tab():
                             cat_col = next((c for c in cols if c not in num_cols), cols[0])
                             fig = px.bar(df.head(20), x=cat_col, y=num_cols[0], title=f"{num_cols[0]} by {cat_col}",
                                          template="plotly_white")
-                            fig.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
+                            fig.update_layout(height=350, margin={"l": 10, "r": 10, "t": 40, "b": 10})
                             st.plotly_chart(fig, use_container_width=True)
                         else:
                             st.info(f"Loaded {len(df)} rows, but found no numerical columns to graph.")
