@@ -235,3 +235,124 @@ class MultimodalRAG:
             img = Image.open(image_path)
             return pytesseract.image_to_string(img)
         except: return ""
+
+    # ── In-memory file indexing (no filesystem needed) ─────────────────────
+    def index_file_bytes(self, filename: str, file_bytes: bytes, session_id: str = "global") -> dict:
+        """Index a file from raw bytes (called directly from Streamlit)."""
+        ext = Path(filename).suffix.lower()
+        stem = Path(filename).stem
+
+        try:
+            if ext == ".pdf":
+                import io
+                reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+                text = ""
+                for page in reader.pages:
+                    text += (page.extract_text() or "") + "\n"
+                text = text.strip()
+                if not text:
+                    return {"filename": filename, "status": "empty", "error": "No text extracted"}
+
+                # Summary chunk
+                self._collection.upsert(
+                    documents=[f"PDF Document: {filename}. Content summary: {text[:500]}"],
+                    metadatas=[{"type": "pdf_summary", "is_user": True, "filename": filename, 
+                               "session_id": session_id, "timestamp": pd.Timestamp.now().isoformat()}],
+                    ids=[f"pdf_summary_{stem}_{session_id}"]
+                )
+                # Content chunks
+                chunks = self._chunk_text(text)
+                docs, metas, ids = [], [], []
+                for i, chunk in enumerate(chunks):
+                    docs.append(f"[From PDF: {filename}] {chunk}")
+                    metas.append({"type": "pdf_doc", "is_user": True, "filename": filename,
+                                 "chunk_index": i, "session_id": session_id, "timestamp": pd.Timestamp.now().isoformat()})
+                    ids.append(f"pdf_{stem}_{session_id}_{i}")
+                if docs:
+                    self._collection.upsert(documents=docs, metadatas=metas, ids=ids)
+                return {"filename": filename, "status": "indexed", "chunks": len(chunks), "pages": len(reader.pages)}
+
+            elif ext == ".csv":
+                import io
+                df = pd.read_csv(io.BytesIO(file_bytes))
+                summary = f"CSV Dataset: {filename}. Columns: {', '.join(df.columns.tolist())}. Total rows: {len(df)}. "
+                # Add column type info
+                num_cols = df.select_dtypes(include=["number"]).columns.tolist()
+                cat_cols = df.select_dtypes(include=["object"]).columns.tolist()
+                summary += f"Numeric columns: {', '.join(num_cols)}. Categorical columns: {', '.join(cat_cols)}."
+                # Add sample data
+                sample = df.head(5).to_csv(index=False)
+                summary += f"\nSample data:\n{sample}"
+
+                self._collection.upsert(
+                    documents=[summary],
+                    metadatas=[{"type": "csv_summary", "is_user": True, "filename": filename,
+                               "session_id": session_id, "timestamp": pd.Timestamp.now().isoformat(),
+                               "columns": json.dumps(df.columns.tolist()), "row_count": str(len(df))}],
+                    ids=[f"csv_summary_{stem}_{session_id}"]
+                )
+                # Index chunks
+                docs, metas, ids = [], [], []
+                for i in range(0, len(df), 5):
+                    chunk = df.iloc[i:i+5]
+                    content = f"[From CSV: {filename}] Rows {i}-{i+len(chunk)-1}:\n{chunk.to_csv(index=False)}"
+                    docs.append(content)
+                    metas.append({"type": "csv_doc", "is_user": True, "filename": filename,
+                                 "session_id": session_id, "chunk_start": i, "timestamp": pd.Timestamp.now().isoformat()})
+                    ids.append(f"csv_{stem}_{session_id}_{i//5}")
+                if docs:
+                    self._collection.upsert(documents=docs, metadatas=metas, ids=ids)
+                return {"filename": filename, "status": "indexed", "rows": len(df), "columns": df.columns.tolist()}
+
+            elif ext in [".png", ".jpg", ".jpeg", ".bmp"]:
+                text = ""
+                try:
+                    import io
+                    from PIL import Image
+                    import pytesseract
+                    img = Image.open(io.BytesIO(file_bytes))
+                    text = pytesseract.image_to_string(img)
+                except:
+                    text = f"Image file: {filename} (OCR not available)"
+                
+                self._collection.upsert(
+                    documents=[f"Image Evidence ({filename}): {text if text.strip() else 'Visual content uploaded for analysis'}"],
+                    metadatas=[{"type": "image_doc", "is_user": True, "filename": filename,
+                               "session_id": session_id, "timestamp": pd.Timestamp.now().isoformat()}],
+                    ids=[f"img_{stem}_{session_id}"]
+                )
+                return {"filename": filename, "status": "indexed", "ocr_text": text[:200] if text else ""}
+
+            elif ext in [".txt", ".json"]:
+                text = file_bytes.decode("utf-8", errors="ignore")
+                self._collection.upsert(
+                    documents=[f"Text Evidence ({filename}):\n{text[:5000]}"],
+                    metadatas=[{"type": "text_doc", "is_user": True, "filename": filename,
+                               "session_id": session_id, "timestamp": pd.Timestamp.now().isoformat()}],
+                    ids=[f"text_{stem}_{session_id}"]
+                )
+                return {"filename": filename, "status": "indexed", "chars": len(text)}
+            else:
+                return {"filename": filename, "status": "unsupported"}
+        except Exception as e:
+            return {"filename": filename, "status": "error", "error": str(e)}
+
+    def get_file_inventory(self, session_id: str) -> List[Dict[str, Any]]:
+        """Return a list of files indexed for a given session."""
+        try:
+            results = self._collection.get(
+                where={"session_id": session_id},
+                include=["metadatas"]
+            )
+            files = {}
+            if results["metadatas"]:
+                for meta in results["metadatas"]:
+                    fname = meta.get("filename", "unknown")
+                    ftype = meta.get("type", "unknown")
+                    if fname not in files:
+                        files[fname] = {"filename": fname, "type": ftype, "chunks": 0}
+                    files[fname]["chunks"] += 1
+            return list(files.values())
+        except:
+            return []
+

@@ -1543,109 +1543,176 @@ def render_dna_tab():
 
 
 # ---------------------------------------------------------------------------
-# Tab 6: PDF Intelligence Chat
+# Tab 6: Multimodal Intelligence (Direct Local Processing)
 # ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
+@st.cache_resource
+def _get_multimodal_rag():
+    from models.multimodal_rag import MultimodalRAG
+    return MultimodalRAG()
+
+def _generate_csv_chart(df, query=""):
+    """Smart chart generation from a DataFrame based on query keywords."""
+    num_cols = df.select_dtypes(include=["number"]).columns.tolist()
+    cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
+    date_cols = []
+    
+    # Detect date columns
+    for c in df.columns:
+        if any(k in c.lower() for k in ["date", "time", "timestamp", "period", "day", "month", "year"]):
+            date_cols.append(c)
+        elif c not in num_cols:
+            try:
+                if pd.to_datetime(df[c].head(3), errors='coerce').notnull().all():
+                    date_cols.append(c)
+            except:
+                continue
+    
+    query_lower = query.lower()
+    
+    # Determine chart type from query
+    if any(k in query_lower for k in ["pie", "proportion", "percentage", "share", "distribution"]):
+        chart_type = "pie"
+    elif any(k in query_lower for k in ["line", "trend", "over time", "timeline"]):
+        chart_type = "line"
+    elif any(k in query_lower for k in ["scatter", "correlation", "relationship"]):
+        chart_type = "scatter"
+    elif any(k in query_lower for k in ["histogram", "frequency"]):
+        chart_type = "histogram"
+    else:
+        chart_type = "bar"
+    
+    fig = None
+    title = ""
+    
+    if chart_type == "pie" and cat_cols and num_cols:
+        fig = px.pie(df.head(20), names=cat_cols[0], values=num_cols[0], title=f"{num_cols[0]} by {cat_cols[0]}")
+        title = f"Pie chart: {num_cols[0]} by {cat_cols[0]}"
+    elif chart_type == "line" and date_cols and num_cols:
+        df_sorted = df.copy()
+        df_sorted[date_cols[0]] = pd.to_datetime(df_sorted[date_cols[0]], errors='coerce')
+        df_sorted = df_sorted.dropna(subset=[date_cols[0]]).sort_values(date_cols[0])
+        fig = px.line(df_sorted, x=date_cols[0], y=num_cols[0], title=f"{num_cols[0]} over Time", markers=True)
+        title = f"Line chart: {num_cols[0]} over {date_cols[0]}"
+    elif chart_type == "scatter" and len(num_cols) >= 2:
+        fig = px.scatter(df, x=num_cols[0], y=num_cols[1], title=f"{num_cols[1]} vs {num_cols[0]}")
+        title = f"Scatter: {num_cols[1]} vs {num_cols[0]}"
+    elif chart_type == "histogram" and num_cols:
+        fig = px.histogram(df, x=num_cols[0], title=f"Distribution of {num_cols[0]}")
+        title = f"Histogram: {num_cols[0]}"
+    elif date_cols and num_cols:
+        df_sorted = df.copy()
+        df_sorted[date_cols[0]] = pd.to_datetime(df_sorted[date_cols[0]], errors='coerce')
+        df_sorted = df_sorted.dropna(subset=[date_cols[0]]).sort_values(date_cols[0])
+        fig = px.line(df_sorted, x=date_cols[0], y=num_cols[0], title=f"{num_cols[0]} over Time", markers=True)
+        title = f"Line chart: {num_cols[0]} over {date_cols[0]}"
+    elif cat_cols and num_cols:
+        fig = px.bar(df.head(25), x=cat_cols[0], y=num_cols[0], title=f"{num_cols[0]} by {cat_cols[0]}")
+        title = f"Bar chart: {num_cols[0]} by {cat_cols[0]}"
+    elif num_cols:
+        fig = px.histogram(df, x=num_cols[0], title=f"Distribution of {num_cols[0]}")
+        title = f"Histogram: {num_cols[0]}"
+    
+    if fig:
+        apply_accessible_theme(fig)
+        fig.update_layout(height=400)
+    
+    return fig, title
+
 def render_multimodal_tab():
-    # Ensure session_id and chat history exist BEFORE any interaction (Upload or Chat)
+    # Ensure session state
     if "session_id" not in st.session_state:
         st.session_state.session_id = str(uuid.uuid4())[:12]
     if "pdf_chat_history" not in st.session_state:
         st.session_state.pdf_chat_history = []
+    if "mm_uploaded_files" not in st.session_state:
+        st.session_state.mm_uploaded_files = {}  # filename -> {"bytes": bytes, "type": str, "df": optional}
+    if "mm_indexed" not in st.session_state:
+        st.session_state.mm_indexed = False
         
     st.markdown("### 🧬 Multimodal Intelligence & Evidence Analysis")
-    st.markdown("Upload PDFs, Images, and CSVs to analyze evidence using local Vision-AI and RAG.")
+    st.markdown("Upload PDFs, Images, and CSVs to analyze evidence using local RAG and AI.")
+    
+    session_id = st.session_state.session_id
     
     col_upload, col_chat = st.columns([1, 2])
     
     with col_upload:
         st.markdown("#### 📤 Upload Evidence")
-        uploaded_files = st.file_uploader("Choose files (PDF, PNG, JPG, CSV)", type=["pdf", "png", "jpg", "jpeg", "csv"], accept_multiple_files=True, key="multimodal_uploader")
+        uploaded_files = st.file_uploader(
+            "Choose files (PDF, PNG, JPG, CSV, TXT)", 
+            type=["pdf", "png", "jpg", "jpeg", "csv", "txt", "json"], 
+            accept_multiple_files=True, 
+            key="multimodal_uploader"
+        )
         
+        # Process uploaded files
         if uploaded_files:
-            if st.button("Index Documents", key="btn_index_pdf"):
-                with st.spinner(f"Uploading and indexing {len(uploaded_files)} document(s)..."):
-                    try:
-                        # Prepare multiple files for the request
-                        files_payload = []
-                        for f in uploaded_files:
-                            mime = "application/pdf"
-                            if f.name.lower().endswith((".png", ".jpg", ".jpeg")): mime = "image/png"
-                            elif f.name.lower().endswith(".csv"): mime = "text/csv"
-                            files_payload.append(("files", (f.name, f.getvalue(), mime)))
-                            
-                        # Pass session_id in query params so backend can isolate these files
-                        upload_url = f"{API_BASE_URL}/api/rag/upload?session_id={st.session_state.get('session_id')}"
-                        resp = requests.post(upload_url, files=files_payload, timeout=120)
-                        
-                        if resp.status_code == 200:
-                            data = resp.json()
-                            uploads = data.get("uploads", [])
-                            success_count = sum(1 for u in uploads if u["status"] == "indexed successfully")
-                            st.success(f"Successfully indexed {success_count} file(s).")
-                            
-                            with st.expander("Upload Details"):
-                                for u in uploads:
-                                    status_emoji = "✅" if u["status"] == "indexed successfully" else "❌"
-                                    st.write(f"{status_emoji} {u['filename']}: {u['status']}")
-                                    if "error" in u:
-                                        st.caption(f"Error: {u['error']}")
-                        else:
-                            st.error(f"Error: {resp.status_code} - {resp.text}")
-                    except Exception as e:
-                        st.error(f"Failed to connect to API: {e}")
+            for f in uploaded_files:
+                if f.name not in st.session_state.mm_uploaded_files:
+                    file_bytes = f.getvalue()
+                    file_info = {"bytes": file_bytes, "type": f.type or "unknown", "name": f.name}
+                    # Pre-load CSV DataFrames
+                    if f.name.lower().endswith(".csv"):
+                        try:
+                            import io
+                            file_info["df"] = pd.read_csv(io.BytesIO(file_bytes))
+                        except:
+                            pass
+                    st.session_state.mm_uploaded_files[f.name] = file_info
+            
+            if st.button("📥 Index All Documents", key="btn_index_mm", type="primary"):
+                rag = _get_multimodal_rag()
+                with st.spinner(f"Indexing {len(st.session_state.mm_uploaded_files)} file(s)..."):
+                    results = []
+                    for fname, finfo in st.session_state.mm_uploaded_files.items():
+                        result = rag.index_file_bytes(fname, finfo["bytes"], session_id=session_id)
+                        results.append(result)
+                    
+                    success = sum(1 for r in results if r.get("status") == "indexed")
+                    st.success(f"✅ Indexed {success}/{len(results)} files successfully!")
+                    st.session_state.mm_indexed = True
+                    
+                    with st.expander("Index Details", expanded=False):
+                        for r in results:
+                            emoji = "✅" if r.get("status") == "indexed" else "❌"
+                            detail = ""
+                            if "pages" in r: detail = f" ({r['pages']} pages, {r.get('chunks', 0)} chunks)"
+                            elif "rows" in r: detail = f" ({r['rows']} rows, {len(r.get('columns', []))} columns)"
+                            elif "ocr_text" in r: detail = f" (OCR extracted)"
+                            st.write(f"{emoji} **{r['filename']}**: {r['status']}{detail}")
+        
+        # Show indexed file inventory
+        st.divider()
+        st.markdown("#### 📂 Loaded Files")
+        if st.session_state.mm_uploaded_files:
+            for fname, finfo in st.session_state.mm_uploaded_files.items():
+                ext = fname.split(".")[-1].upper()
+                emoji = {"PDF": "📕", "CSV": "📊", "PNG": "🖼️", "JPG": "🖼️", "JPEG": "🖼️", "TXT": "📝", "JSON": "📋"}.get(ext, "📄")
+                size_kb = len(finfo["bytes"]) / 1024
+                extra = ""
+                if "df" in finfo:
+                    df = finfo["df"]
+                    extra = f" · {len(df)} rows × {len(df.columns)} cols"
+                st.markdown(f"{emoji} **{fname}** ({size_kb:.1f} KB){extra}")
+        else:
+            st.caption("No files uploaded yet.")
 
-        # --- CSV Visualization logic (Outside button so it stays visible on Rerun) ---
-        csv_files = [f for f in uploaded_files if f.name.lower().endswith(".csv")]
+        # CSV Quick Visualizations
+        csv_files = {k: v for k, v in st.session_state.mm_uploaded_files.items() if "df" in v}
         if csv_files:
             st.divider()
-            st.markdown("#### 📊 Data Insights")
-            for cf in csv_files:
-                try:
-                    df = pd.read_csv(cf)
-                    with st.expander(f"Visualization: {cf.name}", expanded=True):
-                        st.dataframe(df.head(10), use_container_width=True)
-                        
-                        # Identify columns
-                        cols = df.columns.tolist()
-                        # Better detection: look for date or time but also check if the column can be parsed
-                        date_col = next((c for c in cols if any(k in c.lower() for k in ["date", "time", "timestamp", "period", "day", "month", "year"])), None)
-                        num_cols = df.select_dtypes(include=["number"]).columns.tolist()
-                        
-                        # If no obvious date col, check if first few rows of any column look like dates
-                        if not date_col:
-                            for c in cols:
-                                try:
-                                    if pd.to_datetime(df[c].head(3), errors='coerce').notnull().all():
-                                        date_col = c
-                                        break
-                                except: continue
-
-                        if date_col and num_cols:
-                            df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
-                            df = df.dropna(subset=[date_col])
-                            df = df.sort_values(date_col)
-                            import plotly.express as px
-                            fig = px.line(df, x=date_col, y=num_cols[0], title=f"{num_cols[0]} over Time",
-                                          template="plotly_white", markers=True)
-                            fig.update_layout(height=350, margin={"l": 10, "r": 10, "t": 40, "b": 10})
-                            st.plotly_chart(fig, use_container_width=True)
-                        elif len(num_cols) >= 1:
-                            import plotly.express as px
-                            # Simple bar if no date
-                            cat_col = next((c for c in cols if c not in num_cols), cols[0])
-                            fig = px.bar(df.head(20), x=cat_col, y=num_cols[0], title=f"{num_cols[0]} by {cat_col}",
-                                         template="plotly_white")
-                            fig.update_layout(height=350, margin={"l": 10, "r": 10, "t": 40, "b": 10})
-                            st.plotly_chart(fig, use_container_width=True)
-                        else:
-                            st.info(f"Loaded {len(df)} rows, but found no numerical columns to graph.")
-                except Exception as e:
-                    st.error(f"Could not visualize {cf.name}: {e}")
+            st.markdown("#### 📊 Quick Data Preview")
+            for fname, finfo in csv_files.items():
+                df = finfo["df"]
+                with st.expander(f"📊 {fname}", expanded=True):
+                    st.dataframe(df.head(10), use_container_width=True)
+                    fig, title = _generate_csv_chart(df)
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
         
         st.divider()
         st.markdown("#### ℹ️ About Multimodal RAG")
-        st.caption("All data is processed locally. Images are analyzed via Vision-LLM and OCR. CSVs are indexed for structural search.")
+        st.caption("All data is processed locally. PDFs are text-extracted. CSVs are analyzed structurally. Images use OCR when available.")
 
     with col_chat:
         chat_header_col1, chat_header_col2 = st.columns([4, 1])
@@ -1655,34 +1722,25 @@ def render_multimodal_tab():
             if st.button("🧹 Clear", key="clear_pdf_chat_top", help="Clear chat history"):
                 st.session_state.pdf_chat_history = []
                 st.rerun()
+        
+        # Show context indicator
+        if st.session_state.mm_uploaded_files:
+            file_names = list(st.session_state.mm_uploaded_files.keys())
+            indexed_status = "✅ Indexed" if st.session_state.mm_indexed else "⚠️ Not indexed yet — click 'Index All Documents'"
+            st.info(f"📎 **{len(file_names)} file(s) loaded**: {', '.join(file_names)} | {indexed_status}")
+        else:
+            st.info("Upload files on the left panel, then ask questions about them here.")
             
         # Display chat history
         chat_container = st.container(height=450)
         with chat_container:
             for msg in st.session_state.pdf_chat_history:
                 with st.chat_message(msg["role"]):
-                    # Helper to render text + plotly charts + mindmaps
                     text = msg["content"]
-                    
-                    # 1. Split for Plotly
-                    parts = re.split(r"\[PLOTLY_START\](.*?)\[PLOTLY_END\]", text, flags=re.DOTALL)
-                    for i, part in enumerate(parts):
-                        if i % 2 == 0:
-                            # 2. Within text parts, split for Mindmaps
-                            sub_parts = re.split(r"\[MINDMAP_START\](.*?)\[MINDMAP_END\]", part, flags=re.DOTALL)
-                            for j, sub_part in enumerate(sub_parts):
-                                if j % 2 == 0:
-                                    if sub_part.strip(): st.markdown(sub_part)
-                                else:
-                                    try:
-                                        st.graphviz_chart(sub_part.strip())
-                                    except: st.caption("Mindmap data corrupted.")
-                        else:
-                            try:
-                                fig_json = json.loads(part.strip())
-                                st.plotly_chart(fig_json, use_container_width=True)
-                            except: st.caption("Chart data corrupted.")
-
+                    st.markdown(text)
+                    # Render chart if attached
+                    if "chart" in msg and msg["chart"] is not None:
+                        st.plotly_chart(msg["chart"], use_container_width=True)
                     if "sources" in msg and msg["sources"]:
                         with st.expander("View Sources"):
                             for i, src in enumerate(msg["sources"]):
@@ -1697,68 +1755,110 @@ def render_multimodal_tab():
                 
                 with st.chat_message("assistant"):
                     with st.spinner("Analyzing documents..."):
-                        try:
-                            # Auto-attach recently uploaded images if they are in the current session
-                            import base64
-                            images_b64 = []
-                            if uploaded_files:
-                                for f in uploaded_files:
-                                    if f.name.lower().endswith((".png", ".jpg", ".jpeg")):
-                                        b64 = base64.b64encode(f.getvalue()).decode()
-                                        images_b64.append(b64)
-                            
-                            payload = {
-                                "message": prompt,
-                                "session_id": st.session_state.get("session_id"),
-                                "images": images_b64,
-                                "file_types": ["pdf_doc", "image_doc", "csv_doc"] # Strictly scope to uploaded data
-                            }
-                            
-                            resp = requests.post(
-                                f"{API_BASE_URL}/api/rag/chat",
-                                json=payload,
-                                timeout=120
-                            )
-                            if resp.status_code == 200:
-                                data = resp.json()
-                                reply = data["reply"]
-                                sources = data.get("sources", [])
-                                
-                                # Render with plotly and mindmap support
-                                parts = re.split(r"\[PLOTLY_START\](.*?)\[PLOTLY_END\]", reply, flags=re.DOTALL)
-                                for i, part in enumerate(parts):
-                                    if i % 2 == 0:
-                                        # Split for mindmaps
-                                        sub_parts = re.split(r"\[MINDMAP_START\](.*?)\[MINDMAP_END\]", part, flags=re.DOTALL)
-                                        for j, sub_part in enumerate(sub_parts):
-                                            if j % 2 == 0:
-                                                if sub_part.strip(): st.markdown(sub_part)
-                                            else:
-                                                try:
-                                                    st.graphviz_chart(sub_part.strip())
-                                                except: st.caption("Mindmap data corrupted.")
+                        chart_fig = None
+                        sources = []
+                        reply = ""
+                        
+                        # Check if this is a chart/graph request for CSV data
+                        is_chart_query = any(k in prompt.lower() for k in [
+                            "chart", "graph", "plot", "visualize", "show", "draw",
+                            "histogram", "scatter", "pie", "bar", "line", "trend"
+                        ])
+                        
+                        csv_data = {k: v for k, v in st.session_state.mm_uploaded_files.items() if "df" in v}
+                        
+                        if is_chart_query and csv_data:
+                            # Direct CSV charting — generate from actual data
+                            for fname, finfo in csv_data.items():
+                                df = finfo["df"]
+                                chart_fig, chart_title = _generate_csv_chart(df, query=prompt)
+                                if chart_fig:
+                                    num_cols = df.select_dtypes(include=["number"]).columns.tolist()
+                                    reply = (
+                                        f"📊 **Chart generated from {fname}**\n\n"
+                                        f"**Dataset:** {len(df)} rows × {len(df.columns)} columns\n\n"
+                                        f"**Columns:** {', '.join(df.columns.tolist())}\n\n"
+                                        f"**Numeric:** {', '.join(num_cols)}\n\n"
+                                    )
+                                    # Add basic stats
+                                    if num_cols:
+                                        stats = df[num_cols].describe().round(2)
+                                        reply += f"**Quick Stats:**\n"
+                                        for col in num_cols[:3]:
+                                            reply += f"- {col}: mean={stats.loc['mean', col]:.2f}, min={stats.loc['min', col]:.2f}, max={stats.loc['max', col]:.2f}\n"
+                                    break
+                            if not reply:
+                                reply = "Could not generate a chart from the available CSV data. Please check that your CSV has numeric columns."
+                        
+                        # RAG-based answer (for non-chart queries, or in addition to chart)
+                        if not is_chart_query or not chart_fig:
+                            try:
+                                # Try API first
+                                payload = {
+                                    "message": prompt,
+                                    "session_id": session_id,
+                                    "images": [],
+                                    "file_types": ["pdf_doc", "image_doc", "csv_doc", "text_doc", "pdf_summary", "csv_summary"]
+                                }
+                                resp = requests.post(f"{API_BASE_URL}/api/rag/chat", json=payload, timeout=15)
+                                if resp.status_code == 200:
+                                    data = resp.json()
+                                    reply = data["reply"]
+                                    sources = data.get("sources", [])
+                                else:
+                                    raise Exception(f"API returned {resp.status_code}")
+                            except Exception:
+                                # Fallback: Direct local RAG query
+                                try:
+                                    rag = _get_multimodal_rag()
+                                    results = rag.query(prompt, n_results=10, session_id=session_id)
+                                    
+                                    if results:
+                                        sources = [{"text": r["text"], "metadata": r.get("metadata", {})} for r in results]
+                                        reply = f"📄 **Based on your uploaded documents:**\n\n"
+                                        
+                                        # Group by file
+                                        file_contexts = {}
+                                        for r in results:
+                                            fname = r.get("metadata", {}).get("filename", "Unknown")
+                                            if fname not in file_contexts:
+                                                file_contexts[fname] = []
+                                            file_contexts[fname].append(r["text"])
+                                        
+                                        for fname, texts in file_contexts.items():
+                                            reply += f"**From {fname}:**\n"
+                                            for t in texts[:3]:
+                                                clean = t.replace(f"[From PDF: {fname}]", "").replace(f"[From CSV: {fname}]", "").strip()
+                                                if len(clean) > 500:
+                                                    clean = clean[:500] + "..."
+                                                reply += f"> {clean}\n\n"
                                     else:
-                                        try:
-                                            fig_json = json.loads(part.strip())
-                                            st.plotly_chart(fig_json, use_container_width=True)
-                                        except: st.caption("Chart data corrupted.")
-
-                                if sources:
-                                    with st.expander("View Sources"):
-                                        for i, src in enumerate(sources):
-                                            st.caption(f"Source {i+1}: {src['text'][:200]}...")
-                                st.session_state.pdf_chat_history.append({"role": "assistant", "content": reply, "sources": sources})
-                            else:
-                                st.error(f"API Error: {resp.status_code}")
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-            
-
+                                        reply = "No relevant content found in your uploaded documents. Please ensure you've uploaded and indexed your files first."
+                                except Exception as e:
+                                    reply = f"⚠️ Could not query documents: {str(e)}. Ensure files are uploaded and indexed."
+                        
+                        # Render the response
+                        st.markdown(reply)
+                        if chart_fig:
+                            st.plotly_chart(chart_fig, use_container_width=True)
+                        if sources:
+                            with st.expander("View Sources"):
+                                for i, src in enumerate(sources):
+                                    st.caption(f"Source {i+1}: {src['text'][:200]}...")
+                        
+                        # Save to history
+                        st.session_state.pdf_chat_history.append({
+                            "role": "assistant", 
+                            "content": reply, 
+                            "sources": sources,
+                            "chart": chart_fig
+                        })
 
 
 # ---------------------------------------------------------------------------
 # Main Execution
 # ---------------------------------------------------------------------------
+
 def main():
     render_sidebar()
 
