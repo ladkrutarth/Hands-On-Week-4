@@ -23,6 +23,7 @@ import joblib
 import requests
 import re
 import json
+from agents.financial_advisor_agent import FinancialAdvisorAgent
 
 # API Backend URL
 API_BASE_URL = os.environ.get("VERISCAN_API_URL", "http://localhost:8000")
@@ -1113,7 +1114,6 @@ def render_omni_tab():
 # Premium AI Pages: Security & Financial (separate)
 # ---------------------------------------------------------------------------
 def _get_all_users_financial() -> list[str]:
-    from agents.financial_advisor_agent import FinancialAdvisorAgent
     try:
         adv = FinancialAdvisorAgent()
         return adv.get_all_users() or ["USER_0001"]
@@ -1297,10 +1297,10 @@ def render_financial_ai_page():
 
         # Quick summary header
         try:
-            from agents.financial_advisor_agent import FinancialAdvisorAgent
             adv = FinancialAdvisorAgent()
             summary = adv.tool_spending_summary(selected_user)
-            st.markdown(f"**Context:** {summary.get('archetype','').replace('_',' ').title()} spender · Avg: **${summary.get('avg_monthly_spend', 0):,.2f}/mo**")
+            user_name = names_map.get(selected_user, selected_user)
+            st.markdown(f"👤 **User:** {user_name} | **Context:** {summary.get('archetype','').replace('_',' ').title()} spender · Avg: **${summary.get('avg_monthly_spend', 0):,.2f}/mo**")
         except Exception:
             pass
 
@@ -1385,7 +1385,6 @@ def render_dna_tab():
 
     try:
         from agents.spending_dna_agent import SpendingDNAAgent
-        from agents.financial_advisor_agent import FinancialAdvisorAgent
         dna_agent = SpendingDNAAgent()
         adv = FinancialAdvisorAgent()
         all_users = dna_agent.get_all_users()
