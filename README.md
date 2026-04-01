@@ -139,6 +139,7 @@ graph LR
     Security_Domain --> Report[Security Audit]
     Financial_Domain --> Report2[Synthesized Advisory Report]
     Multimodal_Domain --> Report3[Evidence Analysis Report]
+
 ```
 
 | Agent | Role | "The Personality" | Specialized Tools |
