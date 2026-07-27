@@ -39,120 +39,70 @@ The name **Veriscan** represents the fusion of two core security principles:
 
 ## System Architecture
 
-Veriscan-Cortex is a **privacy-first multi-agent system** with a `src/` package layout. The Streamlit UI talks only to a FastAPI backend; models and agents never run inside the dashboard process.
+Veriscan-Cortex is a **privacy-first multi-agent system**. The dashboard never loads models — it only calls the FastAPI backend. All AI runs on-device.
+
+### How a request flows
+
+```text
+User  →  Dashboard  →  API Gateway  →  One Agent  →  Local AI / Data  →  Answer
+```
+
+1. User asks a question in the **Streamlit** dashboard (`:8502`)
+2. **FastAPI** (`:8000`) authenticates the user and creates a `session_id`
+3. The **Agent Router** sends the question to the right specialist
+4. That agent uses **local Llama-3 / Vision / RAG** and local data — nothing leaves the machine
+5. The answer returns to the dashboard
 
 ### System Diagram
 
-End-to-end flow from the dashboard through the API gateway, specialized agents, on-device inference, and data stores.
-
 ```mermaid
 flowchart TB
-    subgraph L1["1. PRESENTATION LAYER"]
-        direction LR
-        User(["Analyst / User"])
-        UI["Streamlit Dashboard<br/>app/streamlit_app.py  ·  port 8502"]
-        User --> UI
-    end
+    U(["User"]) --> D["Streamlit Dashboard<br/>port 8502"]
+    D -->|"REST + session_id"| G["FastAPI Gateway<br/>Auth · Session · Routing<br/>port 8000"]
 
-    subgraph L2["2. API GATEWAY AND SECURITY"]
-        direction TB
-        API["FastAPI REST Router<br/>src/api/main.py  ·  port 8000"]
-        Auth["Auth Auditor<br/>login risk scoring"]
-        Sess[("Session Store<br/>session_id isolation")]
-        API --> Auth --> Sess
-    end
+    G --> R{"Which agent?"}
 
-    subgraph L3["3. MULTI-AGENT INTELLIGENCE"]
-        direction TB
-        Router{"Agent Router"}
+    R -->|Fraud / risk| A1["Security Analyst"]
+    R -->|Money advice| A2["Financial Advisor"]
+    R -->|PDF / image / CSV| A3["Multimodal RAG"]
+    R -->|Behavior trust| A4["Spending DNA"]
 
-        subgraph Agents["Specialized Agents"]
-            direction LR
-            SEC["Security Analyst<br/>guard_agent_local"]
-            FIN["Financial Advisor<br/>ReAct + Orchestrator"]
-            MM["Multimodal Intel<br/>RAG + Vision OCR"]
-            DNA["Spending DNA<br/>8-axis fingerprint"]
-        end
+    A2 --> S["Specialists:<br/>History · Math · Current"]
 
-        subgraph Spec["Financial Specialists"]
-            direction LR
-            HIST["Historical Review"]
-            CALC["Math and Calc"]
-            CURR["Current Analyst"]
-        end
+    A1 & A2 & A3 --> AI["On-device AI<br/>Llama-3-8B · LLaVA · MiniLM"]
+    A3 --> V[("ChromaDB<br/>session-isolated")]
+    A1 & A2 & A4 --> DATA[("Local CSV + Snowflake<br/>+ Fraud ML model")]
 
-        Tools["Tool Registry + HITL Gating<br/>challenge_auth requires approved=True"]
-        Traj[("Trajectory Log<br/>logs/trajectories.jsonl")]
+    AI --> ANS(["Answer to user"])
+    V --> ANS
+    DATA --> ANS
 
-        Router --> SEC & FIN & MM & DNA
-        FIN --> Spec
-        FIN --> Tools
-        Tools --> Traj
-    end
+    classDef ui fill:#0f172a,stroke:#64748b,color:#f8fafc
+    classDef api fill:#0e7490,stroke:#22d3ee,color:#ecfeff
+    classDef agent fill:#1d4ed8,stroke:#93c5fd,color:#eff6ff
+    classDef ai fill:#15803d,stroke:#86efac,color:#f0fdf4
+    classDef data fill:#57534e,stroke:#d6d3d1,color:#fafaf9
 
-    subgraph L4["4. PRIVATE ON-DEVICE COMPUTE"]
-        direction LR
-        LLM["Meta-Llama-3-8B<br/>MLX 4-bit"]
-        Vision["LLaVA-1.5-7B<br/>MLX Vision"]
-        Emb["all-MiniLM-L6-v2<br/>+ optional cross-encoder"]
-        RAG["Multimodal RAG<br/>chunk · embed · filter · rerank"]
-        Chroma[("ChromaDB<br/>session-filtered collections")]
-        Emb --> RAG --> Chroma
-    end
-
-    subgraph L5["5. DATA AND FEATURE PLATFORM"]
-        direction LR
-        CSV[("Local CSVs<br/>data/csv_data")]
-        IC3[("IC3 / CFPB<br/>reference stats")]
-        SF[("Snowflake<br/>RAW · FEATURES · SCORES")]
-        Art[("ML Artifacts<br/>RF model · encoders")]
-        CSV -.->|ETL scripts| SF
-    end
-
-    UI -->|"REST + session_id"| API
-    API --> Router
-
-    SEC & FIN --> LLM
-    MM --> LLM
-    MM --> Vision
-    MM --> RAG
-    DNA --> CSV
-    SEC --> CSV
-    FIN --> CSV
-    SEC --> Art
-
-    classDef present fill:#0f172a,stroke:#334155,color:#f8fafc,stroke-width:1px
-    classDef gateway fill:#164e63,stroke:#0891b2,color:#ecfeff,stroke-width:1px
-    classDef agent fill:#1e3a5f,stroke:#38bdf8,color:#f0f9ff,stroke-width:1px
-    classDef compute fill:#14532d,stroke:#22c55e,color:#f0fdf4,stroke-width:1px
-    classDef data fill:#44403c,stroke:#a8a29e,color:#fafaf9,stroke-width:1px
-
-    class User,UI present
-    class API,Auth,Sess gateway
-    class Router,SEC,FIN,MM,DNA,HIST,CALC,CURR,Tools,Traj agent
-    class LLM,Vision,Emb,RAG,Chroma compute
-    class CSV,IC3,SF,Art data
+    class U,D,ANS ui
+    class G,R api
+    class A1,A2,A3,A4,S agent
+    class AI,V ai
+    class DATA data
 ```
 
-**Flow:** the UI never loads models. FastAPI issues a `session_id`, routes to the correct agent, and all LLM / RAG inference stays on-device.
+| Layer | What it does | Tech |
+|-------|--------------|------|
+| **Dashboard** | Chat UI and charts | Streamlit, Plotly |
+| **Gateway** | Login, `session_id`, API routes | FastAPI, Pydantic |
+| **Agents** | One job each (security, finance, docs, DNA) | ReAct loop, tool registry |
+| **On-device AI** | Reasoning, vision, search | MLX Llama-3, LLaVA, MiniLM |
+| **Data** | Transactions, risk scores, uploads | CSV, Snowflake, ChromaDB |
 
 ### Security & Session Lifecycle
-- **Auth Auditor**: Login requests are scored for risk before a unique `session_id` is issued.
-- **State Propagation**: `session_id` isolates agent memory and multimodal uploads for the session lifetime.
-- **Zero-Trust RAG**: PDFs, images, and CSVs stay on-device. Embeddings live in session-filtered ChromaDB collections under `.chroma_db_*`.
-- **HITL gating**: Sensitive tools (e.g. `challenge_auth`) require explicit `approved=True` via the tool registry.
-
-### Layer Specifications
-
-| Layer | Responsibility | Technology Stack |
-|-------|----------------|------------------|
-| **Client** | Visualization & chat UI | Streamlit, Plotly Express |
-| **Gateway** | Session management & routing | FastAPI, Pydantic v2 |
-| **Agents** | ReAct tool use & orchestration | `react_loop`, `tool_registry`, specialist agents |
-| **Multimodal** | Image/doc analysis | RapidOCR / Tesseract, PyPDF, LLaVA (optional) |
-| **Inference** | Local accelerated LLM | MLX-LM (Apple Silicon) |
-| **RAG** | Session-isolated retrieval + rerank | ChromaDB, MiniLM, optional cross-encoder |
-| **Observability** | Agent step traces | `logs/trajectories.jsonl` |
+- **Auth Auditor**: Login is risk-scored before a `session_id` is issued.
+- **Session isolation**: Uploads and agent memory stay tied to that `session_id`.
+- **On-device only**: PDFs, images, and CSVs never leave the machine; embeddings use session-filtered ChromaDB.
+- **HITL gating**: Sensitive tools (e.g. `challenge_auth`) need explicit `approved=True`.
 
 ---
 
