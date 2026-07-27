@@ -17,7 +17,7 @@ import pandas as pd
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_PATH = PROJECT_ROOT / "dataset" / "csv_data" / "financial_advisor_dataset.csv"
+OUTPUT_PATH = PROJECT_ROOT / "data" / "csv_data" / "financial_advisor_dataset.csv"
 
 # ── Seed for reproducibility ───────────────────────────────────────────────
 random.seed(42)

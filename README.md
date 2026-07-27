@@ -1,17 +1,19 @@
 # Veriscan-Cortex — Advanced Fraud Intelligence & Private Multi-Agent Dashboard
 
-> **Course:** CS 5588 — Data Science Capstone | **Date:** February 2026
+> **Course:** CS 5588 — Data Science Capstone | **Date:** July 2026
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 - [Project Overview](#project-overview)
 - [System Architecture](#system-architecture)
 - [Visual Architecture](#visual-architecture)
 - [Local AI Intelligence](#local-ai-intelligence)
-- [Pipeline Workflow](#pipeline-workflow)
 - [Repository Structure](#repository-structure)
+- [Snowflake Data Platform](#snowflake-data-platform)
+- [Microservices Architecture](#microservices-architecture)
 - [Quick Start](#quick-start)
+- [Evaluation](#evaluation)
 
 ---
 
@@ -21,25 +23,25 @@ Veriscan is an end-to-end **Fraud Detection & Security Platform** that processes
 
 **Data Ingestion → Feature Engineering → Hybrid Fraud Modeling → Secure Identity Auth → Private Agentic AI**
 
-### 🛡️ What is Veriscan?
+### What is Veriscan?
 The name **Veriscan** represents the fusion of two core security principles:
 - **VERI** (*Verification & Veracity*): A commitment to absolute identity truth through dynamic authentication and data-backed evidence.
-- **SCAN** (*Scanning & Surveillance*): The power of autonomous agentic "scans" that explore transaction history, risk profiles, and now personalized financial advice.
+- **SCAN** (*Scanning & Surveillance*): The power of autonomous agentic "scans" that explore transaction history, risk profiles, and personalized financial advice.
 
-### 🌟 Premium AI Specialized Agents
-The dashboard features a triple-agent specialization for mission-critical tasks:
-1. **🛡️ Security AI Analyst**: Dedicated to real-time fraud detection, system shield monitoring, and anomaly detection protocols.
-2. **💰 Financial AI Advisor**: A high-fidelity agent providing advisory reports on credit health, savings plans, and spending optimization.
-3. **🧬 Multimodal Intelligence**: A local RAG-powered agent that processes any evidence: PDFs, Images (via OCR & Vision), CSVs, and Transcripts. 
-4. **🧠 Vision-LLM Analysis**: Direct integration with LLaVA for visual reasoning and document extraction.
-5. **🧬 Spending DNA**: An 8-axis behavioral fingerprinting system for identity verification and trust scoring.
+### Specialized Agents
+1. **Security AI Analyst** — Real-time fraud detection, shield monitoring, and anomaly protocols (`guard_agent_local`).
+2. **Financial AI Advisor** — Credit health, savings plans, and spending optimization via a ReAct tool loop.
+3. **Financial Orchestrator** — Routes questions to Historical Review, Math & Calc, and Current Analyst specialists.
+4. **Multimodal Intelligence** — Session-isolated RAG over PDFs, images (OCR + Vision), CSVs, and transcripts.
+5. **Spending DNA** — 8-axis behavioral fingerprinting for identity verification and trust scoring.
 
+---
 
-## 🏗️ Production System Architecture
+## System Architecture
 
-Veriscan-Cortex is architected as a **high-availability, privacy-first multi-agent system**. The architecture is decoupled into distinct layers to ensure scalability and secure data isolation.
+Veriscan-Cortex is a **privacy-first multi-agent system** with a `src/` package layout. The Streamlit UI talks only to a FastAPI backend; models and agents never run inside the dashboard process.
 
-### 🌐 Unified Architectural Flow
+### Unified Architectural Flow
 ```mermaid
 graph TD
     subgraph Client_Layer [Frontend: User Interface]
@@ -49,28 +51,30 @@ graph TD
 
     subgraph API_Gateway [API Gateway & Security]
         FastAPI[FastAPI REST Router]
-        AuthA[🔒 AI Auth Auditor]
-        SessionStore[(Redis/In-Memory Session Store)]
+        AuthA[Auth Auditor]
+        SessionStore[(In-Memory Session Store)]
     end
 
     subgraph Intelligence_Orchestrator [AI Intelligence Layer]
         Router[Agentic Router]
-        SecAgent[🛡️ Security Analyst]
-        FinAgent[💰 Financial Advisor]
-        MultiAgent[🧬 Multimodal Intelligence]
-        DNAAgent[🧬 Spending DNA]
+        SecAgent[Security Analyst]
+        FinAgent[Financial Advisor + Orchestrator]
+        MultiAgent[Multimodal Intelligence]
+        DNAAgent[Spending DNA]
+        React[ReAct Loop + Tool Registry]
     end
 
     subgraph Memory_Compute [Private Compute & Context]
         LLM[Meta-Llama-3-8B MLX]
         VisionLLM[LLaVA-1.5-7B MLX]
-        RAG[Multimodal RAG Engine]
+        RAG[Multimodal RAG + Relevance]
         VectorDB[(ChromaDB: Session Isolated)]
+        Traj[(logs/trajectories.jsonl)]
     end
 
     subgraph Persistence [Data Tier]
         Snowflake[(Snowflake Data Cloud)]
-        LocalCSV[(Production CSV Store)]
+        LocalCSV[(data/csv_data)]
     end
 
     UI -->|REST: session_id| FastAPI
@@ -78,82 +82,87 @@ graph TD
     AuthA --> SessionStore
     FastAPI --> Router
     Router --> SecAgent & FinAgent & MultiAgent & DNAAgent
+    FinAgent --> React
     SecAgent & FinAgent & MultiAgent --> LLM
     MultiAgent --> VisionLLM
     MultiAgent --> RAG
     RAG --> VectorDB
+    React --> Traj
     SecAgent & FinAgent & DNAAgent --> LocalCSV
     LocalCSV -.->|ETL| Snowflake
 ```
 
-### 🔒 Security & Session Lifecycle
-In a production environment, Veriscan prioritizes **Identity Veracity**:
-- **Auth Auditor**: Every authentication request (Login) is intercepted by the Auth Auditor agent. It computes a **Login Risk Score** before assigning a globally unique `session_id`.
-- **State Propagation**: The `session_id` is propagated through all microservices, ensuring that agentic memory remains isolated and consistent for the duration of the user session.
-- **Zero-Trust RAG**: Multimodal evidence (PDFs, Images, CSVs) is processed entirely within the local compute environment. Embeddings and raw extracted data never leave the host machine, matching Tier-1 financial data privacy standards.
+### Security & Session Lifecycle
+- **Auth Auditor**: Login requests are scored for risk before a unique `session_id` is issued.
+- **State Propagation**: `session_id` isolates agent memory and multimodal uploads for the session lifetime.
+- **Zero-Trust RAG**: PDFs, images, and CSVs stay on-device. Embeddings live in session-filtered ChromaDB collections under `.chroma_db_*`.
+- **HITL gating**: Sensitive tools (e.g. `challenge_auth`) require explicit `approved=True` via the tool registry.
 
-### 🧩 Production Layer Specifications
+### Layer Specifications
 
 | Layer | Responsibility | Technology Stack |
 |-------|----------------|------------------|
-| **Client** | High-fidelity visualization | Streamlit, Plotly Express |
+| **Client** | Visualization & chat UI | Streamlit, Plotly Express |
 | **Gateway** | Session management & routing | FastAPI, Pydantic v2 |
-| **Multimodal** | Image/Doc analysis | PyTesseract, PyPDF, LLaVA |
-| **Inference** | Local accelerated LLM | MLX-LM (M-series Compatible) |
-| **RAG** | Session isolated retrieval | ChromaDB (Metadata filtering) |
+| **Agents** | ReAct tool use & orchestration | `react_loop`, `tool_registry`, specialist agents |
+| **Multimodal** | Image/doc analysis | RapidOCR / Tesseract, PyPDF, LLaVA (optional) |
+| **Inference** | Local accelerated LLM | MLX-LM (Apple Silicon) |
+| **RAG** | Session-isolated retrieval + rerank | ChromaDB, MiniLM, optional cross-encoder |
+| **Observability** | Agent step traces | `logs/trajectories.jsonl` |
 
 ---
 
 ## Visual Architecture
 
-### 🧠 How the AI "Brain" Works
-Veriscan-Cortex works like a professional security team. Instead of one slow AI doing everything, we used **specialized agents** that work together in a split second.
+### How the AI Brain Works
+Specialized agents collaborate instead of one monolithic model doing everything.
 
 ```mermaid
 graph LR
-    User([User Query]) --> ModelSelector{🔍 Model Selector}
+    User([User Query]) --> ModelSelector{Model Selector}
     
-    ModelSelector -->|Security| SecAnalyst[🛡️ Security Analyst]
-    ModelSelector -->|Financial| FinOrchestrator[💰 Financial Orchestrator]
-    ModelSelector -->|Multimodal| MultiAnalyst[🧬 Multimodal Expert]
+    ModelSelector -->|Security| SecAnalyst[Security Analyst]
+    ModelSelector -->|Financial| FinOrchestrator[Financial Orchestrator]
+    ModelSelector -->|Multimodal| MultiAnalyst[Multimodal Expert]
 
     subgraph Security_Domain [Security Intelligence]
         direction LR
-        SecAnalyst --> Scanner[🔍 Scanner]
-        SecAnalyst --> Profile[👤 Investigator]
+        SecAnalyst --> Scanner[Scanner]
+        SecAnalyst --> Profile[Investigator]
     end
 
     subgraph Financial_Domain [Multi-Agent Advisory]
         direction LR
-        FinOrchestrator --> HistAgent["📜 Historical Review"]
-        FinOrchestrator --> CalcAgent["📉 Math & Calc"]
-        FinOrchestrator --> CurrAgent["⌚ Current Analyst"]
+        FinOrchestrator --> HistAgent[Historical Review]
+        FinOrchestrator --> CalcAgent[Math and Calc]
+        FinOrchestrator --> CurrAgent[Current Analyst]
+        FinOrchestrator --> ReactLoop[ReAct Advisor]
     end
 
-    subgraph Multimodal_Domain [Document & Visual Intel]
+    subgraph Multimodal_Domain [Document and Visual Intel]
         direction LR
-        MultiAnalyst --> RAG[🔍 RAG Search]
-        MultiAnalyst --> Vision[👁️ Vision Analyzer]
+        MultiAnalyst --> RAG[RAG Search + Rerank]
+        MultiAnalyst --> Vision[Vision Analyzer]
     end
 
     Security_Domain --> Report[Security Audit]
     Financial_Domain --> Report2[Synthesized Advisory Report]
     Multimodal_Domain --> Report3[Evidence Analysis Report]
-
 ```
 
-| Agent | Role | "The Personality" | Specialized Tools |
-| :--- | :--- | :--- | :--- |
-| **Orchestrator** | The Project Manager | Coordinates specialized sub-agents to build a cohesive financial report. | Multi-agent synthesis |
-| **Historical Review** | The Archivist | Analyzes long-term spending patterns and historical category trends. | `tool_monthly_comparison` |
-| **Math & Calculation**| The Accountant | Performs precision math on transaction totals, averages, and deviations. | `tool_cash_flow_forecast`, `tool_surplus_optimizer` |
-| **Current Analyst** | The Real-Time Monitor | Focuses on the most recent transactions and immediate spending behavior. | `tool_detect_price_hikes`, `tool_tax_deductible_finder` |
-| **Multimodal Expert**| The Evidence Specialist| Analyzes uploaded documents, images, and CSVs using RAG and Vision LLM. | `tool_semantic_search`, `tool_vision_ocr`, `tool_csv_summarizer` |
-| **Scanner** | The Watchman | Scans the whole system for high-risk threats in milliseconds. | `tool_realtime_fraud_check` |
-| **Profile** | The Private Eye | Looks deep into a specific user's history and risk scores. | `tool_credit_score_impact` |
+| Agent | Role | Specialized Tools |
+| :--- | :--- | :--- |
+| **Orchestrator** | Routes to specialists; keyword or LLM supervisor mode | Multi-agent synthesis |
+| **Historical Review** | Long-term spending patterns | Monthly / YoY comparisons |
+| **Math & Calculation** | Totals, averages, forecasts | Cash-flow forecast, surplus optimizer |
+| **Current Analyst** | Recent activity windows (30/60/90d) | Price hikes, tax-deductible finder |
+| **Financial Advisor** | Bounded ReAct JSON tool loop | Profile, risk, category, DNA tools |
+| **Multimodal Expert** | Uploaded evidence | Semantic search, Vision OCR, CSV summarizer |
+| **Security Guard** | Fraud / shield queries | High-risk scan, user risk profile |
+| **Spending DNA** | Behavioral fingerprint | Profile, compare, challenge (HITL) |
 
-### 📄 Multi-Stage Multimodal RAG Architecture
-The RAG system features a **Session-Isolated Multimodal** pipeline. Users can index any evidence (PDF bank statements, JPG receipts, CSV finance data). It uses semantic search with `all-MiniLM-L6-v2` and incorporates the **Vision LLM** for visual reasoning.
+### Multimodal RAG Pipeline
+Session-isolated indexing with page-aware PDF extract, OCR fallback, lexical boost, distance thresholds, and optional cross-encoder rerank (`rag_relevance.py`).
 
 ```mermaid
 graph LR
@@ -168,6 +177,7 @@ graph LR
         OCR[Tesseract/Vision OCR]
         Chunk[Semantic Chunking]
         Embed[all-MiniLM-L6-v2]
+        Rank[Relevance filter + rerank]
         Chroma[(ChromaDB: Session Filtered)]
     end
 
@@ -181,78 +191,81 @@ graph LR
     OCR --> Chunk
     Chunk --> Embed
     Embed --> Chroma
-    Chroma --> LLM & Vision
-    LLM & Vision --> Reply[Synthesized Evidence Analysis]
+    Chroma --> Rank
+    Rank --> LLM & Vision
+    LLM & Vision --> Reply[Grounded Evidence Analysis]
 ```
+
+---
 
 ## Local AI Intelligence
 
-Veriscan features a cutting-edge, local-first AI stack designed for maximum data privacy and performance on Mac hardware.
-
-- **Text LLM**: `Meta-Llama-3-8B-Instruct` (MLX/4-bit).
-- **Vision LLM**: `LLaVA-1.5-7B` (MLX/4-bit).
-- **Inference**: **MLX-LM** (Native GPU acceleration for Apple Silicon).
-- **Embeddings**: `all-MiniLM-L6-v2`.
-- **Vector Database**: **ChromaDB** (Session-isolated metadata filtering).
+- **Text LLM**: `Meta-Llama-3-8B-Instruct` (MLX / 4-bit)
+- **Vision LLM**: `LLaVA-1.5-7B` (MLX / 4-bit)
+- **Inference**: MLX-LM on Apple Silicon
+- **Embeddings**: `all-MiniLM-L6-v2`
+- **Optional reranker**: `cross-encoder/ms-marco-MiniLM-L-6-v2`
+- **Vector DB**: ChromaDB (session metadata filtering)
+- **Agent loop**: Bounded ReAct (`max_steps` / `max_tool_calls`) with JSON actions and keyword fallback
 
 ---
 
 ## Repository Structure
 
 ```
-Veriscan-Dashboard/
-├── streamlit_app.py                    # Aggregator UI (Consumes Microservices)
-├── api/                                # ⚡ FastAPI Microservices Layer
-│   ├── main.py                         # REST API Router & Endpoints
-│   └── schemas.py                      # Pydantic Data Models
-├── Phase-2-Report.md                   # Technical Report
-├── CONTRIBUTIONS.md                    # Team Breakdown
-├── requirements.txt                    # Project Dependencies
-│
-├── agents/                             # 🤖 Specialized AI Agents
-│   ├── base.py                         # Standardized Agent Interfaces
-│   ├── financial_advisor_agent.py      # 💰 Financial Advisor Specialist
-│   ├── memory.py                       # 🧠 Stateful Conversation Memory
-│   └── spending_dna_agent.py           # 🧬 Behavioral Fingerprinting Agent
-│
-├── models/                             # Intelligence & Core Logic Layer
-│   ├── local_llm.py                    # 🧠 MLX-LM Wrapper (Llama-3)
-│   ├── guard_agent_local.py            # 🛡️ Security Analyst Facade
-│   ├── rag_engine_local.py             # 🔍 RAG Engine (Local Indexing)
-│   └── agent_tools_data.py             # ⚙️ Data Tools for Risk & Profiles
-│
-├── scripts/                            # Data Pipeline & Synthetic Data
-│   ├── feature_engineering.py          # ⚙️ 19 Health Signals
-│   ├── fix_agent_data.py               # 🩹 Data Reconciliation Utility
-│   ├── generate_cfpb_dataset.py        # 🏦 Synthetic CFPB Compliant Data
-│   ├── generate_financial_advisor_dataset.py # 💸 Advisor Context Generator
-│   └── generate_spending_dna_dataset.py # 🧬 DNA Vector Generator
-│
-├── sql/                                # Snowflake SQL Layer
-│   ├── create_tables.sql               # 📋 DDL: 5 Tables + 2 Views
-│   └── analytical_queries.sql          # 📊 8 Analytical Queries
-│
-├── dataset/csv_data/                   # Production-Ready Data Store
-│   ├── financial_advisor_dataset.csv   # 💰 Advisor Data (90k Rows, Online-Skewed)
-│   ├── spending_dna_dataset.csv        # 🧬 DNA Trace Data (90k Rows)
-│   ├── fraud_detection_qa_dataset.json # 💡 Expert Intelligence Dataset
-│   ├── fraud_scores_output.csv         # 🛡️ Hybrid ML Fraud Scores
-│   ├── top10_scam_types_by_losses.csv  # 📊 Market Contextual Data
-│   └── pipeline_logs.csv               # Pipeline Audit Trail
-│
-├── dataset/pdf_data/                   # Local RAG Knowledge Base
-│   ├── 2024_IC3Report.pdf              # Global Cybercrime Intelligence
-│   └── The-Scam-Economy.pdf            # Expert Market Research
-│
-└── docs/
-    └── architecture_diagram.png        # System Architecture Diagram
+Veriscan-Cortex/
+├── app/
+│   └── streamlit_app.py              # Streamlit dashboard (API client)
+├── src/                              # Import root (PYTHONPATH=src)
+│   ├── paths.py                      # Shared data / log / Chroma paths
+│   ├── agents/
+│   │   ├── base.py                   # AgentAction / AgentResult interfaces
+│   │   ├── react_loop.py             # Bounded ReAct JSON tool loop
+│   │   ├── tool_registry.py          # Tool schemas + HITL gating
+│   │   ├── trajectory_log.py         # JSONL run traces
+│   │   ├── financial_advisor_agent.py
+│   │   ├── financial_orchestrator.py
+│   │   ├── historical_review_agent.py
+│   │   ├── current_transaction_analyst.py
+│   │   ├── transaction_calculation_agent.py
+│   │   ├── spending_dna_agent.py
+│   │   └── memory.py
+│   ├── api/
+│   │   ├── main.py                   # FastAPI routers & lifespan
+│   │   └── schemas.py                # Pydantic models
+│   └── models/
+│       ├── local_llm.py              # MLX Llama-3 wrapper
+│       ├── vision_llm.py             # LLaVA wrapper
+│       ├── guard_agent_local.py      # Security analyst facade
+│       ├── rag_engine_local.py       # Knowledge-base RAG
+│       ├── multimodal_rag.py         # Session-isolated multimodal RAG
+│       ├── rag_relevance.py          # Score, filter, rerank, grounded prompts
+│       ├── agent_tools_data.py       # Risk / profile data tools
+│       └── auth_store.py             # Demo user store
+├── data/
+│   ├── csv_data/                     # Transactions, scores, DNA, QA
+│   ├── ic3_2024_csvs/                # IC3 crime statistics
+│   ├── pdf_data/                     # RAG source PDFs
+│   └── user_uploads/                 # Per-session upload sandbox
+├── scripts/                          # ETL & synthetic generators
+├── sql/                              # Snowflake DDL + analytical queries
+├── configs/ingest_config.yaml
+├── tests/                            # Offline agent & RAG evaluations
+├── docs/                             # Capstone report
+├── logs/                             # pipeline_logs.csv, trajectories.jsonl
+├── artifacts/                        # Trained model binaries (.joblib)
+├── notebooks/
+├── poster/
+├── run_api.sh                        # FastAPI (reload watches src/ only)
+├── run_dashboard.sh                  # Streamlit dashboard
+├── streamlit_app.py                  # Thin backward-compatible launcher
+├── pyproject.toml                    # Package metadata (src layout)
+└── requirements.txt
 ```
 
 ---
 
-## ☁️ Snowflake Data Platform
-
-Veriscan integrates with **Snowflake** for scalable analytics and data warehousing.
+## Snowflake Data Platform
 
 | Table | Purpose |
 |-------|--------|
@@ -262,31 +275,30 @@ Veriscan integrates with **Snowflake** for scalable analytics and data warehousi
 | `AUTH_PROFILES` | User security profiles |
 | `PIPELINE_RUNS` | Pipeline audit trail |
 
-**Views:** `ENRICHED_TRANSACTIONS` (joined data), `USER_RISK_DASHBOARD` (aggregated risk)
+**Views:** `ENRICHED_TRANSACTIONS`, `USER_RISK_DASHBOARD`
 
-See `sql/create_tables.sql` for schema DDL and `sql/analytical_queries.sql` for 8 production-ready queries.
+See `sql/create_tables.sql` and `sql/analytical_queries.sql`.
 
 ---
 
-## 🚀 Microservices Architecture
-
-Veriscan uses a **decoupled microservices architecture**. The ML, RAG, and Agentic AI components run as a standalone **FastAPI backend**, and the Streamlit dashboard consumes them via REST API.
+## Microservices Architecture
 
 ```mermaid
 graph LR
-    subgraph Frontend ["🖥️ Streamlit Dashboard (Port 8502)"]
+    subgraph Frontend [Streamlit Dashboard Port 8502]
         UI[Dashboard UI]
     end
 
-    subgraph Backend ["⚡ FastAPI Backend (Port 8000)"]
+    subgraph Backend [FastAPI Backend Port 8000]
         API[REST API Router]
-        Agent[Specialized AI Specialists]
-        RAG[RAG Engine + Context Retrieval]
+        Agent[Specialized AI Agents]
+        RAG[RAG Engine + Relevance]
     end
 
     UI -->|POST /api/advisor/chat| API
     UI -->|POST /api/security/chat| API
-    UI -->|POST /api/dna/dna-analysis| API
+    UI -->|POST /api/rag/chat| API
+    UI -->|GET /api/dna/profile/ID| API
     UI -->|GET /api/user/ID/risk| API
     API --> Agent
     API --> RAG
@@ -294,69 +306,106 @@ graph LR
 
 ### API Endpoints
 
-| `GET` | `/api/health` | Health check & loaded services (advisor, guard, DNA) |
-| `POST` | `/api/rag/upload` | Multi-file PDF upload and local indexing |
-| `POST` | `/api/rag/chat` | Context-aware chat with indexed documents |
-| `POST` | `/api/llm/generate` | Direct Llama-3 inference endpoint |
-| `POST` | `/api/fraud/predict` | Single-transaction fraud prediction |
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/health` | Health check & loaded services |
+| `POST` | `/api/auth/login` | Demo login → `session_id` + risk scoring |
 | `GET` | `/api/fraud/high-risk` | Top riskiest transactions |
 | `GET` | `/api/user/{user_id}/risk` | User risk profile |
+| `POST` | `/api/rag/query` | Knowledge-base semantic search |
+| `POST` | `/api/rag/upload` | Multi-file upload & session indexing |
+| `POST` | `/api/rag/chat` | Grounded chat over uploaded docs |
+| `POST` | `/api/advisor/chat` | Financial advisor (ReAct / orchestrator) |
+| `GET` | `/api/advisor/users` | Available advisor user IDs |
+| `POST` | `/api/advisor/reset` | Reset advisor conversation memory |
+| `POST` | `/api/security/chat` | Security analyst chat |
+| `GET` | `/api/dna/profile/{user_id}` | Spending DNA fingerprint |
+| `POST` | `/api/dna/compare` | Compare DNA profiles |
+| `POST` | `/api/dna/challenge` | DNA challenge (HITL-gated) |
+
+Interactive docs: `http://127.0.0.1:8000/docs`
 
 ---
 
 ## Quick Start
 
 ### 1. Requirements
-- macOS with Apple Silicon (M1/M2/M3)
-- Python 3.9+ (Anaconda environment recommended)
+- macOS with Apple Silicon (M1/M2/M3/M4)
+- Python **3.11+** (see `pyproject.toml`)
+- OCR: Tesseract (`brew install tesseract`) **or** the bundled RapidOCR Python fallback (`rapidocr-onnxruntime`)
+- Optional Vision: `pip install mlx-vlm` (LLaVA via MLX; do not set `VERISCAN_SKIP_VISION=1`)
 
 ### 2. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Run the Data Pipeline
+### 3. Prepare / refresh agent datasets (optional)
+CSV products under `data/csv_data/` are already present for demo. To regenerate:
 ```bash
-# Prepare dataset (requires fraudTrain.csv in dataset/csv_data/)
-python scripts/prepare_fraud_data.py
-
-# Train the fraud model
-python models/train_fraud_model.py
-
-# Sync agent data files
+python scripts/generate_financial_advisor_dataset.py
+python scripts/generate_spending_dna_dataset.py
+python scripts/generate_cfpb_dataset.py
+python scripts/feature_engineering.py
 python scripts/fix_agent_data.py
 ```
 
 ### 4. Launch the API Backend
 ```bash
-uvicorn api.main:app --host 0.0.0.0 --port 8000
+./run_api.sh
+# equivalent:
+# PYTHONPATH=src python3 -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload --reload-dir src
 ```
 
 ### 5. Launch the Dashboard (separate terminal)
 ```bash
-streamlit run streamlit_app.py --server.port 8502
+./run_dashboard.sh --server.port 8502
+# equivalent:
+# PYTHONPATH=src streamlit run app/streamlit_app.py --server.port 8502
 ```
-*Note: On first run, the Llama-3 model (~4.9GB) will be downloaded automatically.*
+
+On first run, Llama-3 (~4.9GB) downloads automatically via Hugging Face.
+
+### Trajectory logging
+Agent runs append to `logs/trajectories.jsonl` by default. Disable with:
+```bash
+export VERISCAN_TRAJECTORY_LOG=0
+```
 
 ---
 
-## 🔄 Reproducibility & Deployment
+## Evaluation
+
+Offline suites live under `tests/` (they prepend `src/` to `sys.path`):
+
+```bash
+PYTHONPATH=src python tests/evaluate_rag_local.py
+PYTHONPATH=src python tests/evaluate_agent_local.py
+PYTHONPATH=src python tests/evaluate_advisor_agent_local.py
+PYTHONPATH=src python src/models/evaluate_multimodal_rag_local.py
+```
+
+---
+
+## Reproducibility & Deployment
 
 | Aspect | Details |
 |--------|--------|
-| **Environment** | Python 3.9+, dependencies in `requirements.txt` |
-| **Model Versioning** | `fraud_model_rf.joblib` + `encoders.joblib` (deterministic `random_state=42`) |
-| **Dataset** | Kaggle `kartik2112/fraud-detection` (download separately). Note: The preparation script now utilizes **5x Fraud Oversampling** to ensure sufficient risk events scale for downstream analytics. |
-| **Vector Store** | ChromaDB (rebuilt on demand via `rag_engine_local.py`) |
-| **Config** | `scripts/ingest_config.yaml` (supports env var overrides) |
-| **Secrets** | All credentials via environment variables; `.env` in `.gitignore` |
+| **Environment** | Python 3.11+, `requirements.txt` |
+| **Layout** | `src/` packages; launch via `run_*.sh` or `PYTHONPATH=src` |
+| **Model Versioning** | `fraud_model_rf.joblib` + `encoders.joblib` (`random_state=42`) |
+| **Dataset** | Synthetic + CFPB/IC3-aligned CSVs under `data/` |
+| **Vector Store** | ChromaDB under `.chroma_db_local` / `.chroma_db_multimodal` |
+| **Config** | `configs/ingest_config.yaml` (env overrides supported) |
+| **Secrets** | Credentials via environment variables; `.env` gitignored |
 
-## 🛡️ Project Data Realism
-The Veriscan dataset engine has been specifically designed to reflect modern fraud profiles. 
+## Project Data Realism
 
-- **78% Online Skew**: In alignment with current market research, 78% of simulated fraud monetary losses are clustered in **Online Shopping** and **Electronics** categories.
-- **Scale**: The system generates **90,000 transactions** across 1,000 distinct user archetypes.
-- **DNA Fingerprinting**: Every transaction is mapped to an 8-axis behavioral vector, allowing for 1-to-N identity verification with a high-confidence trust score.
+- **78% Online Skew**: Simulated fraud losses concentrated in Online Shopping / Electronics.
+- **Scale**: ~**90,000 transactions** across **1,000** user archetypes.
+- **DNA Fingerprinting**: Each user maps to an 8-axis behavioral vector for trust scoring.
 
 ### Source
 https://consumerfed.org/press_release/americans-estimated-to-lose-119-billion-annually-to-online-scams/
+
+Full write-up: [`docs/VERISCAN-CORTEX-FINAL-REPORT.md`](docs/VERISCAN-CORTEX-FINAL-REPORT.md)

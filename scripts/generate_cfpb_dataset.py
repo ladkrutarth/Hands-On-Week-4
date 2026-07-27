@@ -2,7 +2,7 @@
 Generate Synthetic CFPB Credit Card Complaint Dataset (50,000 rows).
 Focuses on major credit bureaus (Equifax, TransUnion) and top issuers.
 
-Output: dataset/csv_data/cfpb_credit_card.csv
+Output: data/csv_data/cfpb_credit_card.csv
 """
 
 import random
@@ -13,7 +13,7 @@ from pathlib import Path
 # --- Config ---
 TARGET_ROWS = 50_000
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_PATH = PROJECT_ROOT / "dataset" / "csv_data" / "cfpb_credit_card.csv"
+OUTPUT_PATH = PROJECT_ROOT / "data" / "csv_data" / "cfpb_credit_card.csv"
 
 # --- Constants ---
 COMPANIES = [

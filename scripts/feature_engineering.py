@@ -18,7 +18,7 @@ import pandas as pd
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
-PIPELINE_LOG_PATH = PROJECT_ROOT / "pipeline_logs.csv"
+PIPELINE_LOG_PATH = PROJECT_ROOT / "logs" / "pipeline_logs.csv"
 
 PIPELINE_LOG_COLUMNS = [
     "run_id", "timestamp", "stage", "status",
@@ -180,7 +180,7 @@ def main():
     parser = argparse.ArgumentParser(description="Feature Engineering Pipeline")
     parser.add_argument(
         "--input", type=str,
-        default=str(PROJECT_ROOT / "dataset" / "csv_data" / "transactions_kaggle.csv"),
+        default=str(PROJECT_ROOT / "data" / "csv_data" / "transactions_kaggle.csv"),
         help="Path to raw transactions CSV (default: transactions_kaggle.csv)",
     )
     parser.add_argument(
@@ -204,7 +204,7 @@ def main():
         features_df = engineer_features(df)
         elapsed = (time.time() - t0) * 1000
 
-        output_path = args.output_csv or str(PROJECT_ROOT / "dataset" / "csv_data" / "features_output.csv")
+        output_path = args.output_csv or str(PROJECT_ROOT / "data" / "csv_data" / "features_output.csv")
         features_df.to_csv(output_path, index=False)
         print(f"✅ Features saved to {output_path}")
         print(f"   {len(features_df)} rows, {len(features_df.columns)} columns")

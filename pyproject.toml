@@ -1,0 +1,22 @@
+"""
+Veriscan-Cortex — package metadata & src-layout config.
+"""
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "veriscan-cortex"
+version = "1.0.0"
+description = "Advanced Fraud Intelligence & Private Multi-Agent Dashboard"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["agents*", "api*", "models*", "paths*"]
+
+[tool.setuptools.package-dir]
+"" = "src"

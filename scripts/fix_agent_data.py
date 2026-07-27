@@ -5,8 +5,8 @@ from pathlib import Path
 import os
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = PROJECT_ROOT / "dataset" / "csv_data"
-MODEL_DIR = PROJECT_ROOT / "models"
+DATA_DIR = PROJECT_ROOT / "data" / "csv_data"
+MODEL_DIR = PROJECT_ROOT / "artifacts"
 
 # Output Paths requested by GuardAgent
 FRAUD_SCORES_PATH = DATA_DIR / "fraud_scores_output.csv"

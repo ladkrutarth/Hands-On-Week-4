@@ -1,7 +1,0 @@
-run_id,timestamp,stage,status,records_processed,duration_ms,error_message
-ec5e7f72,2026-02-24T23:53:20.218933,feature_engineering,success,15000,884.07,
-95b07365,2026-02-24T23:53:54.867619,scoring,success,15000,24511.15,
-4efe195b,2026-02-24T23:54:09.398890,auth_profiling,success,50,0.0,
-f195dfc9,2026-02-25T00:04:56.325565,feature_engineering,success,15000,439.87,
-9c4dbbe7,2026-02-25T00:05:07.601901,scoring,success,15000,1620.21,
-6b2f4fb2,2026-02-25T00:05:19.228065,auth_profiling,success,50,0.0,

@@ -13,7 +13,7 @@ Simulates the 8-axis financial fingerprint per user:
   8. merchant_loyalty_score — Repeat merchant fraction
 
 Run: python scripts/generate_spending_dna_dataset.py
-Output: dataset/csv_data/spending_dna_dataset.csv
+Output: data/csv_data/spending_dna_dataset.csv
 """
 
 import random
@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_PATH = PROJECT_ROOT / "dataset" / "csv_data" / "spending_dna_dataset.csv"
+OUTPUT_PATH = PROJECT_ROOT / "data" / "csv_data" / "spending_dna_dataset.csv"
 
 random.seed(7)
 np.random.seed(7)

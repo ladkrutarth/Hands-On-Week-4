@@ -197,7 +197,7 @@ def main():
          "FRAUD_SCORES"),
         (PROJECT_ROOT / "auth_profiles_output.csv",
          "AUTH_PROFILES"),
-        (PROJECT_ROOT / "pipeline_logs.csv",
+        (PROJECT_ROOT / "logs" / "pipeline_logs.csv",
          "PIPELINE_RUNS"),
     ]
 
