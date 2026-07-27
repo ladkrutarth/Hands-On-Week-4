@@ -41,56 +41,100 @@ The name **Veriscan** represents the fusion of two core security principles:
 
 Veriscan-Cortex is a **privacy-first multi-agent system** with a `src/` package layout. The Streamlit UI talks only to a FastAPI backend; models and agents never run inside the dashboard process.
 
-### Unified Architectural Flow
+### System Diagram
+
+End-to-end flow from the dashboard through the API gateway, specialized agents, on-device inference, and data stores.
+
 ```mermaid
-graph TD
-    subgraph Client_Layer [Frontend: User Interface]
-        UI[Streamlit Dashboard]
-        Session[Session State Manager]
+flowchart TB
+    subgraph L1["1. PRESENTATION LAYER"]
+        direction LR
+        User(["Analyst / User"])
+        UI["Streamlit Dashboard<br/>app/streamlit_app.py  ·  port 8502"]
+        User --> UI
     end
 
-    subgraph API_Gateway [API Gateway & Security]
-        FastAPI[FastAPI REST Router]
-        AuthA[Auth Auditor]
-        SessionStore[(In-Memory Session Store)]
+    subgraph L2["2. API GATEWAY AND SECURITY"]
+        direction TB
+        API["FastAPI REST Router<br/>src/api/main.py  ·  port 8000"]
+        Auth["Auth Auditor<br/>login risk scoring"]
+        Sess[("Session Store<br/>session_id isolation")]
+        API --> Auth --> Sess
     end
 
-    subgraph Intelligence_Orchestrator [AI Intelligence Layer]
-        Router[Agentic Router]
-        SecAgent[Security Analyst]
-        FinAgent[Financial Advisor + Orchestrator]
-        MultiAgent[Multimodal Intelligence]
-        DNAAgent[Spending DNA]
-        React[ReAct Loop + Tool Registry]
+    subgraph L3["3. MULTI-AGENT INTELLIGENCE"]
+        direction TB
+        Router{"Agent Router"}
+
+        subgraph Agents["Specialized Agents"]
+            direction LR
+            SEC["Security Analyst<br/>guard_agent_local"]
+            FIN["Financial Advisor<br/>ReAct + Orchestrator"]
+            MM["Multimodal Intel<br/>RAG + Vision OCR"]
+            DNA["Spending DNA<br/>8-axis fingerprint"]
+        end
+
+        subgraph Spec["Financial Specialists"]
+            direction LR
+            HIST["Historical Review"]
+            CALC["Math and Calc"]
+            CURR["Current Analyst"]
+        end
+
+        Tools["Tool Registry + HITL Gating<br/>challenge_auth requires approved=True"]
+        Traj[("Trajectory Log<br/>logs/trajectories.jsonl")]
+
+        Router --> SEC & FIN & MM & DNA
+        FIN --> Spec
+        FIN --> Tools
+        Tools --> Traj
     end
 
-    subgraph Memory_Compute [Private Compute & Context]
-        LLM[Meta-Llama-3-8B MLX]
-        VisionLLM[LLaVA-1.5-7B MLX]
-        RAG[Multimodal RAG + Relevance]
-        VectorDB[(ChromaDB: Session Isolated)]
-        Traj[(logs/trajectories.jsonl)]
+    subgraph L4["4. PRIVATE ON-DEVICE COMPUTE"]
+        direction LR
+        LLM["Meta-Llama-3-8B<br/>MLX 4-bit"]
+        Vision["LLaVA-1.5-7B<br/>MLX Vision"]
+        Emb["all-MiniLM-L6-v2<br/>+ optional cross-encoder"]
+        RAG["Multimodal RAG<br/>chunk · embed · filter · rerank"]
+        Chroma[("ChromaDB<br/>session-filtered collections")]
+        Emb --> RAG --> Chroma
     end
 
-    subgraph Persistence [Data Tier]
-        Snowflake[(Snowflake Data Cloud)]
-        LocalCSV[(data/csv_data)]
+    subgraph L5["5. DATA AND FEATURE PLATFORM"]
+        direction LR
+        CSV[("Local CSVs<br/>data/csv_data")]
+        IC3[("IC3 / CFPB<br/>reference stats")]
+        SF[("Snowflake<br/>RAW · FEATURES · SCORES")]
+        Art[("ML Artifacts<br/>RF model · encoders")]
+        CSV -.->|ETL scripts| SF
     end
 
-    UI -->|REST: session_id| FastAPI
-    FastAPI --> AuthA
-    AuthA --> SessionStore
-    FastAPI --> Router
-    Router --> SecAgent & FinAgent & MultiAgent & DNAAgent
-    FinAgent --> React
-    SecAgent & FinAgent & MultiAgent --> LLM
-    MultiAgent --> VisionLLM
-    MultiAgent --> RAG
-    RAG --> VectorDB
-    React --> Traj
-    SecAgent & FinAgent & DNAAgent --> LocalCSV
-    LocalCSV -.->|ETL| Snowflake
+    UI -->|"REST + session_id"| API
+    API --> Router
+
+    SEC & FIN --> LLM
+    MM --> LLM
+    MM --> Vision
+    MM --> RAG
+    DNA --> CSV
+    SEC --> CSV
+    FIN --> CSV
+    SEC --> Art
+
+    classDef present fill:#0f172a,stroke:#334155,color:#f8fafc,stroke-width:1px
+    classDef gateway fill:#164e63,stroke:#0891b2,color:#ecfeff,stroke-width:1px
+    classDef agent fill:#1e3a5f,stroke:#38bdf8,color:#f0f9ff,stroke-width:1px
+    classDef compute fill:#14532d,stroke:#22c55e,color:#f0fdf4,stroke-width:1px
+    classDef data fill:#44403c,stroke:#a8a29e,color:#fafaf9,stroke-width:1px
+
+    class User,UI present
+    class API,Auth,Sess gateway
+    class Router,SEC,FIN,MM,DNA,HIST,CALC,CURR,Tools,Traj agent
+    class LLM,Vision,Emb,RAG,Chroma compute
+    class CSV,IC3,SF,Art data
 ```
+
+**Flow:** the UI never loads models. FastAPI issues a `session_id`, routes to the correct agent, and all LLM / RAG inference stays on-device.
 
 ### Security & Session Lifecycle
 - **Auth Auditor**: Login requests are scored for risk before a unique `session_id` is issued.
@@ -118,36 +162,45 @@ graph TD
 Specialized agents collaborate instead of one monolithic model doing everything.
 
 ```mermaid
-graph LR
-    User([User Query]) --> ModelSelector{Model Selector}
-    
-    ModelSelector -->|Security| SecAnalyst[Security Analyst]
-    ModelSelector -->|Financial| FinOrchestrator[Financial Orchestrator]
-    ModelSelector -->|Multimodal| MultiAnalyst[Multimodal Expert]
+flowchart LR
+    Q(["User Query"]) --> MS{"Model Selector"}
 
-    subgraph Security_Domain [Security Intelligence]
-        direction LR
-        SecAnalyst --> Scanner[Scanner]
-        SecAnalyst --> Profile[Investigator]
+    MS -->|Security| SA["Security Analyst"]
+    MS -->|Financial| FO["Financial Orchestrator"]
+    MS -->|Multimodal| ME["Multimodal Expert"]
+    MS -->|Identity| DNA["Spending DNA"]
+
+    subgraph SEC_D["Security Intelligence"]
+        SA --> SCAN["High-risk Scanner"]
+        SA --> INV["Risk Investigator"]
     end
 
-    subgraph Financial_Domain [Multi-Agent Advisory]
-        direction LR
-        FinOrchestrator --> HistAgent[Historical Review]
-        FinOrchestrator --> CalcAgent[Math and Calc]
-        FinOrchestrator --> CurrAgent[Current Analyst]
-        FinOrchestrator --> ReactLoop[ReAct Advisor]
+    subgraph FIN_D["Multi-Agent Advisory"]
+        FO --> HR["Historical Review"]
+        FO --> MC["Math and Calc"]
+        FO --> CA["Current Analyst"]
+        FO --> RA["ReAct Advisor"]
     end
 
-    subgraph Multimodal_Domain [Document and Visual Intel]
-        direction LR
-        MultiAnalyst --> RAG[RAG Search + Rerank]
-        MultiAnalyst --> Vision[Vision Analyzer]
+    subgraph MM_D["Document and Visual Intel"]
+        ME --> RR["RAG Search + Rerank"]
+        ME --> VA["Vision / OCR"]
     end
 
-    Security_Domain --> Report[Security Audit]
-    Financial_Domain --> Report2[Synthesized Advisory Report]
-    Multimodal_Domain --> Report3[Evidence Analysis Report]
+    subgraph ID_D["Behavioral Identity"]
+        DNA --> FP["8-axis Fingerprint"]
+        DNA --> CMP["Compare / Challenge HITL"]
+    end
+
+    SEC_D --> OUT1["Security Audit"]
+    FIN_D --> OUT2["Advisory Report"]
+    MM_D --> OUT3["Evidence Analysis"]
+    ID_D --> OUT4["Trust Score"]
+
+    classDef node fill:#1e293b,stroke:#64748b,color:#f1f5f9
+    classDef out fill:#0f766e,stroke:#2dd4bf,color:#ecfdf5
+    class Q,MS,SA,FO,ME,DNA,SCAN,INV,HR,MC,CA,RA,RR,VA,FP,CMP node
+    class OUT1,OUT2,OUT3,OUT4 out
 ```
 
 | Agent | Role | Specialized Tools |
@@ -284,24 +337,32 @@ See `sql/create_tables.sql` and `sql/analytical_queries.sql`.
 ## Microservices Architecture
 
 ```mermaid
-graph LR
-    subgraph Frontend [Streamlit Dashboard Port 8502]
-        UI[Dashboard UI]
+flowchart LR
+    subgraph FE["Streamlit Dashboard · :8502"]
+        UI["Dashboard UI"]
     end
 
-    subgraph Backend [FastAPI Backend Port 8000]
-        API[REST API Router]
-        Agent[Specialized AI Agents]
-        RAG[RAG Engine + Relevance]
+    subgraph BE["FastAPI Backend · :8000"]
+        API["REST API Router"]
+        AG["Specialized AI Agents"]
+        RG["RAG Engine + Relevance"]
+        ML["Local MLX Models"]
     end
 
-    UI -->|POST /api/advisor/chat| API
-    UI -->|POST /api/security/chat| API
-    UI -->|POST /api/rag/chat| API
-    UI -->|GET /api/dna/profile/ID| API
-    UI -->|GET /api/user/ID/risk| API
-    API --> Agent
-    API --> RAG
+    UI -->|"POST /api/advisor/chat"| API
+    UI -->|"POST /api/security/chat"| API
+    UI -->|"POST /api/rag/chat"| API
+    UI -->|"GET /api/dna/profile/{id}"| API
+    UI -->|"GET /api/user/{id}/risk"| API
+    API --> AG
+    API --> RG
+    AG --> ML
+    RG --> ML
+
+    classDef fe fill:#0f172a,stroke:#64748b,color:#f8fafc
+    classDef be fill:#164e63,stroke:#22d3ee,color:#ecfeff
+    class UI fe
+    class API,AG,RG,ML be
 ```
 
 ### API Endpoints
