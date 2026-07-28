@@ -59,19 +59,35 @@ User  →  Dashboard  →  API Gateway  →  One Agent  →  Local AI / Data  �
 flowchart TB
     U(["User"]) --> D["Streamlit Dashboard<br/>port 8502"]
     D -->|"REST + session_id"| G["FastAPI Gateway<br/>Auth · Session · Routing<br/>port 8000"]
-
     G --> R{"Which agent?"}
 
-    R -->|Fraud / risk| A1["Security Analyst"]
-    R -->|Money advice| A2["Financial Advisor"]
-    R -->|PDF / image / CSV| A3["Multimodal RAG"]
-    R -->|Behavior trust| A4["Spending DNA"]
+    subgraph AGENTS[" "]
+        direction LR
+        A1["Security Analyst<br/>Fraud / risk"]
+        A2["Financial Advisor<br/>Money advice"]
+        A3["Multimodal RAG<br/>PDF / image / CSV"]
+        A4["Spending DNA<br/>Behavior trust"]
+    end
 
-    A2 --> S["Specialists:<br/>History · Math · Current"]
+    R --> A1
+    R --> A2
+    R --> A3
+    R --> A4
 
-    A1 & A2 & A3 --> AI["On-device AI<br/>Llama-3-8B · LLaVA · MiniLM"]
-    A3 --> V[("ChromaDB<br/>session-isolated")]
-    A1 & A2 & A4 --> DATA[("Local CSV + Snowflake<br/>+ Fraud ML model")]
+    A2 --> S["Specialists: History · Math · Current"]
+
+    AGENTS --> RUN["Shared on-device runtime"]
+
+    subgraph RES[" "]
+        direction LR
+        AI["On-device AI<br/>Llama-3-8B · LLaVA · MiniLM"]
+        V[("ChromaDB<br/>session-isolated")]
+        DATA[("Local CSV + Snowflake<br/>+ Fraud ML model")]
+    end
+
+    RUN --> AI
+    RUN --> V
+    RUN --> DATA
 
     AI --> ANS(["Answer to user"])
     V --> ANS
@@ -82,12 +98,14 @@ flowchart TB
     classDef agent fill:#1d4ed8,stroke:#93c5fd,color:#eff6ff
     classDef ai fill:#15803d,stroke:#86efac,color:#f0fdf4
     classDef data fill:#57534e,stroke:#d6d3d1,color:#fafaf9
+    classDef hub fill:#312e81,stroke:#a5b4fc,color:#eef2ff
 
     class U,D,ANS ui
     class G,R api
     class A1,A2,A3,A4,S agent
     class AI,V ai
     class DATA data
+    class RUN hub
 ```
 
 | Layer | What it does | Tech |
