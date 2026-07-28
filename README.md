@@ -56,38 +56,49 @@ User  →  Dashboard  →  API Gateway  →  One Agent  →  Local AI / Data  �
 ### System Diagram
 
 ```mermaid
-flowchart TB
-    U(["User"]) --> D["Streamlit Dashboard<br/>port 8502"]
-    D -->|"REST + session_id"| G["FastAPI Gateway<br/>Auth · Session · Routing<br/>port 8000"]
+graph TD
+    subgraph Client_Layer [Frontend: User Interface]
+        UI[Streamlit Dashboard]
+        Session[Session State Manager]
+    end
 
-    G --> R{"Which agent?"}
+    subgraph API_Gateway [API Gateway & Security]
+        FastAPI[FastAPI REST Router]
+        AuthA[ AI Auth Auditor]
+        SessionStore[(Redis/In-Memory Session Store)]
+    end
 
-    R -->|Fraud / risk| A1["Security Analyst"]
-    R -->|Money advice| A2["Financial Advisor"]
-    R -->|PDF / image / CSV| A3["Multimodal RAG"]
-    R -->|Behavior trust| A4["Spending DNA"]
+    subgraph Intelligence_Orchestrator [AI Intelligence Layer]
+        Router[Agentic Router]
+        SecAgent[ Security Analyst]
+        FinAgent[Financial Advisor]
+        MultiAgent[Multimodal Intelligence]
+        DNAAgent[Spending DNA]
+    end
 
-    A2 --> S["Specialists:<br/>History · Math · Current"]
+    subgraph Memory_Compute [Private Compute & Context]
+        LLM[Meta-Llama-3-8B MLX]
+        VisionLLM[LLaVA-1.5-7B MLX]
+        RAG[Multimodal RAG Engine]
+        VectorDB[(ChromaDB: Session Isolated)]
+    end
 
-    A1 & A2 & A3 --> AI["On-device AI<br/>Llama-3-8B · LLaVA · MiniLM"]
-    A3 --> V[("ChromaDB<br/>session-isolated")]
-    A1 & A2 & A4 --> DATA[("Local CSV + Snowflake<br/>+ Fraud ML model")]
+    subgraph Persistence [Data Tier]
+        Snowflake[(Snowflake Data Cloud)]
+        LocalCSV[(Production CSV Store)]
+    end
 
-    AI --> ANS(["Answer to user"])
-    V --> ANS
-    DATA --> ANS
-
-    classDef ui fill:#0f172a,stroke:#64748b,color:#f8fafc
-    classDef api fill:#0e7490,stroke:#22d3ee,color:#ecfeff
-    classDef agent fill:#1d4ed8,stroke:#93c5fd,color:#eff6ff
-    classDef ai fill:#15803d,stroke:#86efac,color:#f0fdf4
-    classDef data fill:#57534e,stroke:#d6d3d1,color:#fafaf9
-
-    class U,D,ANS ui
-    class G,R api
-    class A1,A2,A3,A4,S agent
-    class AI,V ai
-    class DATA data
+    UI -->|REST: session_id| FastAPI
+    FastAPI --> AuthA
+    AuthA --> SessionStore
+    FastAPI --> Router
+    Router --> SecAgent & FinAgent & MultiAgent & DNAAgent
+    SecAgent & FinAgent & MultiAgent --> LLM
+    MultiAgent --> VisionLLM
+    MultiAgent --> RAG
+    RAG --> VectorDB
+    SecAgent & FinAgent & DNAAgent --> LocalCSV
+    LocalCSV -.->|ETL| Snowflake
 ```
 
 | Layer | What it does | Tech |
