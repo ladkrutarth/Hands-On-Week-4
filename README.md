@@ -108,95 +108,38 @@ flowchart TB
 
 ## Visual Architecture
 
-### How the AI Brain Works
-Specialized agents collaborate instead of one monolithic model doing everything.
+### Agents and their jobs
 
-```mermaid
-flowchart LR
-    Q(["User Query"]) --> MS{"Model Selector"}
+| Agent | When it runs | Output |
+|-------|--------------|--------|
+| **Security Analyst** | Fraud / shield / risk questions | Security audit |
+| **Financial Advisor** | Money advice (ReAct tool loop) | Advisory answer |
+| **Financial Orchestrator** | Complex finance questions | Routes to History / Math / Current |
+| **Multimodal Expert** | Uploaded PDF, image, or CSV | Evidence-grounded answer |
+| **Spending DNA** | Identity / behavior trust | 8-axis fingerprint + compare |
 
-    MS -->|Security| SA["Security Analyst"]
-    MS -->|Financial| FO["Financial Orchestrator"]
-    MS -->|Multimodal| ME["Multimodal Expert"]
-    MS -->|Identity| DNA["Spending DNA"]
+| Specialist (under Orchestrator) | Focus |
+|---------------------------------|-------|
+| Historical Review | Long-term spending patterns |
+| Math and Calculation | Totals, averages, forecasts |
+| Current Analyst | Last 30 / 60 / 90 days |
 
-    subgraph SEC_D["Security Intelligence"]
-        SA --> SCAN["High-risk Scanner"]
-        SA --> INV["Risk Investigator"]
-    end
+### Multimodal RAG pipeline
 
-    subgraph FIN_D["Multi-Agent Advisory"]
-        FO --> HR["Historical Review"]
-        FO --> MC["Math and Calc"]
-        FO --> CA["Current Analyst"]
-        FO --> RA["ReAct Advisor"]
-    end
-
-    subgraph MM_D["Document and Visual Intel"]
-        ME --> RR["RAG Search + Rerank"]
-        ME --> VA["Vision / OCR"]
-    end
-
-    subgraph ID_D["Behavioral Identity"]
-        DNA --> FP["8-axis Fingerprint"]
-        DNA --> CMP["Compare / Challenge HITL"]
-    end
-
-    SEC_D --> OUT1["Security Audit"]
-    FIN_D --> OUT2["Advisory Report"]
-    MM_D --> OUT3["Evidence Analysis"]
-    ID_D --> OUT4["Trust Score"]
-
-    classDef node fill:#1e293b,stroke:#64748b,color:#f1f5f9
-    classDef out fill:#0f766e,stroke:#2dd4bf,color:#ecfdf5
-    class Q,MS,SA,FO,ME,DNA,SCAN,INV,HR,MC,CA,RA,RR,VA,FP,CMP node
-    class OUT1,OUT2,OUT3,OUT4 out
-```
-
-| Agent | Role | Specialized Tools |
-| :--- | :--- | :--- |
-| **Orchestrator** | Routes to specialists; keyword or LLM supervisor mode | Multi-agent synthesis |
-| **Historical Review** | Long-term spending patterns | Monthly / YoY comparisons |
-| **Math & Calculation** | Totals, averages, forecasts | Cash-flow forecast, surplus optimizer |
-| **Current Analyst** | Recent activity windows (30/60/90d) | Price hikes, tax-deductible finder |
-| **Financial Advisor** | Bounded ReAct JSON tool loop | Profile, risk, category, DNA tools |
-| **Multimodal Expert** | Uploaded evidence | Semantic search, Vision OCR, CSV summarizer |
-| **Security Guard** | Fraud / shield queries | High-risk scan, user risk profile |
-| **Spending DNA** | Behavioral fingerprint | Profile, compare, challenge (HITL) |
-
-### Multimodal RAG Pipeline
-Session-isolated indexing with page-aware PDF extract, OCR fallback, lexical boost, distance thresholds, and optional cross-encoder rerank (`rag_relevance.py`).
-
-```mermaid
-graph LR
-    subgraph Ingestion [Privacy-First Ingestion]
-        Docs[(PDF/CSV/TXT)]
-        IMG[(Images)]
-        TXN[(Transactions)]
-    end
-
-    subgraph RAG_Engine [Local Intelligence]
-        direction TB
-        OCR[Tesseract/Vision OCR]
-        Chunk[Semantic Chunking]
-        Embed[all-MiniLM-L6-v2]
-        Rank[Relevance filter + rerank]
-        Chroma[(ChromaDB: Session Filtered)]
-    end
-
-    subgraph Inference [Agentic Response]
-        LLM[Meta-Llama-3-8B]
-        Vision[LLaVA-1.5-7B]
-    end
-
-    Docs & TXN --> Chunk
-    IMG --> OCR
-    OCR --> Chunk
-    Chunk --> Embed
-    Embed --> Chroma
-    Chroma --> Rank
-    Rank --> LLM & Vision
-    LLM & Vision --> Reply[Grounded Evidence Analysis]
+```text
+PDF / Image / CSV
+        │
+        ▼
+  Extract text (PyPDF / OCR / Vision)
+        │
+        ▼
+  Chunk  →  Embed (MiniLM)  →  ChromaDB (this session only)
+        │
+        ▼
+  Filter + optional rerank
+        │
+        ▼
+  Llama-3 / LLaVA  →  Grounded answer
 ```
 
 ---
@@ -286,33 +229,14 @@ See `sql/create_tables.sql` and `sql/analytical_queries.sql`.
 
 ## Microservices Architecture
 
-```mermaid
-flowchart LR
-    subgraph FE["Streamlit Dashboard · :8502"]
-        UI["Dashboard UI"]
-    end
-
-    subgraph BE["FastAPI Backend · :8000"]
-        API["REST API Router"]
-        AG["Specialized AI Agents"]
-        RG["RAG Engine + Relevance"]
-        ML["Local MLX Models"]
-    end
-
-    UI -->|"POST /api/advisor/chat"| API
-    UI -->|"POST /api/security/chat"| API
-    UI -->|"POST /api/rag/chat"| API
-    UI -->|"GET /api/dna/profile/{id}"| API
-    UI -->|"GET /api/user/{id}/risk"| API
-    API --> AG
-    API --> RG
-    AG --> ML
-    RG --> ML
-
-    classDef fe fill:#0f172a,stroke:#64748b,color:#f8fafc
-    classDef be fill:#164e63,stroke:#22d3ee,color:#ecfeff
-    class UI fe
-    class API,AG,RG,ML be
+```text
+  Streamlit (:8502)                    FastAPI (:8000)
+  ┌─────────────────┐                  ┌──────────────────────────┐
+  │  Dashboard UI   │ ──── REST ─────► │  API Router              │
+  └─────────────────┘                  │    ├─ Agents             │
+                                       │    ├─ RAG + Relevance    │
+                                       │    └─ Local MLX models   │
+                                       └──────────────────────────┘
 ```
 
 ### API Endpoints
